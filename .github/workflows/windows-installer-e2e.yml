@@ -59,6 +59,9 @@ jobs:
       - name: Start Postgres and Redis
         shell: pwsh
         run: |
+          # docker-compose.yml references ../../.env for the api service;
+          # Compose validates it even when only starting postgres/redis.
+          if (-not (Test-Path .env)) { Copy-Item .env.example .env }
           docker compose -f infra/docker/docker-compose.yml up -d postgres redis
           $deadline = (Get-Date).AddMinutes(3)
           do {

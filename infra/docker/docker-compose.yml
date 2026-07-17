@@ -48,7 +48,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.api
     env_file:
-      - ../../.env
+      - path: ../../.env
+        required: false
     environment:
       DATABASE_URL: postgresql://nexusdesk:nexusdesk@postgres:5432/nexusdesk?schema=public
       REDIS_URL: redis://redis:6379
