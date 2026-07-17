@@ -1,0 +1,19 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build images
+        run: |
+          docker build -f infra/docker/Dockerfile.api -t nexusdesk/api:${GITHUB_REF_NAME} .
+          docker build -f infra/docker/Dockerfile.dashboard -t nexusdesk/dashboard:${GITHUB_REF_NAME} .
+          docker build -f infra/docker/Dockerfile.signaling -t nexusdesk/signaling:${GITHUB_REF_NAME} .
+          docker build -f infra/docker/Dockerfile.relay -t nexusdesk/relay:${GITHUB_REF_NAME} .
+          docker build -f infra/docker/Dockerfile.agent -t nexusdesk/agent:${GITHUB_REF_NAME} .

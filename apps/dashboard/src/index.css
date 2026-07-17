@@ -1,0 +1,170 @@
+@import '@nexusdesk/ui/styles.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background font-mono text-foreground antialiased;
+    text-shadow: 0 0 1px hsl(120 90% 48% / 0.15);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-mono tracking-normal;
+  }
+
+  ::selection {
+    background-color: hsl(var(--nd-primary) / 0.35);
+    color: hsl(var(--nd-primary-foreground));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--nd-background));
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--nd-border));
+    border: 2px solid hsl(var(--nd-background));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--nd-primary) / 0.5);
+  }
+}
+
+@layer components {
+  .nd-atmosphere {
+    @apply pointer-events-none fixed inset-0 -z-10;
+    background-color: hsl(var(--nd-background));
+    background-image: radial-gradient(ellipse 80% 60% at 50% 0%, hsl(120 40% 10% / 0.9), transparent 70%);
+  }
+
+  .nd-atmosphere::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      hsl(0 0% 0% / 0.18) 2px,
+      hsl(0 0% 0% / 0.18) 4px
+    );
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  .glass-panel,
+  .nd-panel {
+    @apply border border-border bg-card text-card-foreground;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .nd-kbd {
+    @apply inline-flex h-5 min-w-[1.25rem] items-center justify-center border border-border bg-muted px-1 font-mono text-[10px] font-medium text-accent;
+  }
+
+  .page-enter {
+    animation: fade-in 0.2s ease-out;
+  }
+
+  .status-dot {
+    @apply inline-block h-2 w-2 shrink-0;
+    border-radius: 0;
+  }
+
+  .status-dot-online {
+    background-color: hsl(var(--nd-ok));
+    box-shadow: 0 0 6px hsl(var(--nd-ok) / 0.7);
+  }
+
+  .status-dot-offline {
+    background-color: hsl(var(--nd-muted-foreground));
+  }
+
+  .status-dot-pending {
+    @apply animate-pulse-soft;
+    background-color: hsl(var(--nd-warning));
+  }
+
+  .status-dot-error {
+    background-color: hsl(var(--nd-destructive));
+    box-shadow: 0 0 6px hsl(var(--nd-destructive) / 0.6);
+  }
+
+  /* Terminal frame / box */
+  .tui-box {
+    @apply border border-border bg-card font-mono;
+    border-radius: 0;
+  }
+
+  .tui-box-title {
+    @apply border-b border-border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-accent;
+  }
+
+  .nd-stat {
+    @apply relative border border-border bg-card p-3 font-mono;
+    border-radius: 0;
+  }
+
+  .nd-stat-accent {
+    border-color: hsl(var(--nd-primary) / 0.55);
+    box-shadow: inset 0 0 0 1px hsl(var(--nd-primary) / 0.15);
+  }
+
+  .nd-nav-active {
+    background: hsl(var(--nd-primary) / 0.12);
+    color: hsl(var(--nd-primary));
+    box-shadow: inset 3px 0 0 hsl(var(--nd-primary));
+  }
+
+  .tui-tag {
+    @apply inline-flex items-center font-mono text-[11px] font-semibold tracking-wide;
+  }
+
+  .tui-tag-info {
+    color: hsl(var(--nd-info));
+  }
+
+  .tui-tag-ok {
+    color: hsl(var(--nd-ok));
+  }
+
+  .tui-tag-exit,
+  .tui-tag-err {
+    color: hsl(var(--nd-destructive));
+  }
+
+  .tui-tag-done {
+    color: hsl(var(--nd-ok));
+  }
+
+  .tui-prompt {
+    color: hsl(var(--nd-primary));
+  }
+
+  .tui-footer {
+    @apply flex h-8 shrink-0 items-center gap-3 border-t border-border bg-muted px-3 font-mono text-[11px] text-accent;
+  }
+
+  .tui-scanline {
+    pointer-events: none;
+  }
+}

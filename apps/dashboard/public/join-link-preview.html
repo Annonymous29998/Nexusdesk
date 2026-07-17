@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexusDesk — Support Link Preview</title>
+  <style>
+    :root {
+      --bg: #050805;
+      --card: #0a120a;
+      --border: #1a3a1a;
+      --primary: #39ff14;
+      --accent: #00e5c0;
+      --muted: #6b8f6b;
+      --mobile-bg: #0f0f10;
+      --mobile-card: #1a1a1c;
+      --blue: #60a5fa;
+      --green: #7dd3a8;
+      --font: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: #c8e6c8;
+      min-height: 100vh;
+      padding: 2rem 1rem 3rem;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .page-header h1 {
+      font-size: 1.1rem;
+      color: var(--primary);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .page-header p {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .page-header code {
+      color: var(--accent);
+      font-size: 0.7rem;
+    }
+
+    .previews {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2.5rem;
+      justify-content: center;
+      align-items: flex-start;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .preview-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .preview-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+    }
+
+    /* ── Desktop join page ── */
+    .desktop-frame {
+      width: 520px;
+      max-width: 100%;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      box-shadow: 0 0 40px rgba(57, 255, 20, 0.06);
+    }
+
+    .tui-header {
+      border-bottom: 1px solid var(--border);
+      background: rgba(57, 255, 20, 0.05);
+      padding: 1.25rem 1.5rem;
+    }
+
+    .tui-header h2 {
+      font-size: 1.1rem;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .tui-header .sub {
+      margin-top: 0.25rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .tui-body {
+      padding: 1.25rem 1.5rem 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+
+    .tui-body .section-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+    }
+
+    .tui-body .join-url {
+      margin-top: 0.35rem;
+      color: var(--primary);
+      word-break: break-all;
+      font-size: 0.75rem;
+    }
+
+    .tui-body .note {
+      margin-top: 1rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+
+    .tui-body .date {
+      margin-top: 0.75rem;
+      font-size: 0.7rem;
+      color: var(--accent);
+    }
+
+    .tui-body hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1rem 0;
+    }
+
+    .steps {
+      list-style: none;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .steps li {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .steps .num { color: var(--accent); }
+
+    .btn-download {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--primary);
+      color: #050805;
+      border: none;
+      font-family: var(--font);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-download:hover { opacity: 0.9; }
+
+    .meta {
+      margin-top: 0.75rem;
+      text-align: center;
+      font-size: 0.65rem;
+      color: var(--muted);
+    }
+
+    .tui-footer {
+      border-top: 1px solid var(--border);
+      padding: 0.75rem;
+      text-align: center;
+      font-size: 0.65rem;
+      color: var(--muted);
+    }
+
+    /* ── Mobile frame ── */
+    .phone-frame {
+      width: 320px;
+      border-radius: 28px;
+      border: 3px solid #333;
+      background: var(--mobile-bg);
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .phone-notch {
+      height: 28px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .phone-notch span {
+      width: 80px;
+      height: 6px;
+      background: #222;
+      border-radius: 3px;
+    }
+
+    .phone-screen {
+      padding: 1.5rem 1.25rem 1.25rem;
+      min-height: 480px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mobile-card {
+      width: 100%;
+      background: var(--mobile-card);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      overflow: hidden;
+      text-align: center;
+      color: #fff;
+    }
+
+    .mobile-card .top {
+      padding: 1.75rem 1.25rem 1rem;
+    }
+
+    .mobile-card .brand {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--green);
+      letter-spacing: 0.05em;
+    }
+
+    .mobile-card .icon-wrap {
+      width: 64px;
+      height: 64px;
+      margin: 1.25rem auto 0;
+      border-radius: 50%;
+      background: rgba(29, 78, 216, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mobile-card .icon-wrap svg {
+      width: 32px;
+      height: 32px;
+      stroke: var(--blue);
+      fill: none;
+      stroke-width: 1.5;
+    }
+
+    .mobile-card h3 {
+      margin-top: 1.25rem;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+
+    .mobile-card .msg {
+      margin-top: 0.85rem;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: rgba(255,255,255,0.65);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .mobile-card .from {
+      margin-top: 0.75rem;
+      font-size: 0.68rem;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .mobile-card .copy-zone {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 1rem 1.25rem;
+    }
+
+    .btn-copy {
+      width: 100%;
+      padding: 0.7rem;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.78rem;
+      font-family: system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    .mobile-card .url-snippet {
+      margin-top: 0.6rem;
+      font-size: 0.58rem;
+      color: rgba(255,255,255,0.35);
+      word-break: break-all;
+      font-family: var(--font);
+    }
+
+    .mobile-card .secure {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 0.85rem;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.45);
+      font-family: system-ui, sans-serif;
+    }
+
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <h1>NexusDesk support link preview</h1>
+    <p>What your guest sees when they open the invite link</p>
+    <p><code id="sample-url">http://192.168.18.5:3000/join/6CFP3TR3</code></p>
+  </header>
+
+  <div class="previews">
+
+    <!-- DESKTOP (Windows PC / Chrome) -->
+    <div class="preview-block">
+      <span class="preview-label">Desktop · Windows PC + Chrome</span>
+      <div class="desktop-frame">
+        <div class="tui-header">
+          <h2>Join with Support</h2>
+          <p class="sub">From NexusDesk</p>
+        </div>
+        <div class="tui-body">
+          <p class="section-label">Meeting Invite:</p>
+          <p class="join-url" id="desktop-url">http://192.168.18.5:3000/join/6CFP3TR3</p>
+
+          <p class="note">
+            You have been invited to join a remote support session. NOTE: For the best
+            connectivity pls use Google Chrome on a Windows PC
+          </p>
+
+          <p class="date">DATE: JULY 23, 2026</p>
+
+          <hr />
+
+          <ol class="steps">
+            <li><span class="num">[1]</span><span>Click "Download for Windows" to get the installer.</span></li>
+            <li><span class="num">[2]</span><span>Right-click the .bat → Run as administrator → click Yes.</span></li>
+            <li><span class="num">[3]</span><span>Wait until it says Finished, then close that window.</span></li>
+            <li><span class="num">[4]</span><span>You can close this browser tab afterward.</span></li>
+          </ol>
+
+          <button class="btn-download" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download for Windows
+          </button>
+
+          <p class="meta">Code 6CFP3TR3 · 3 installs remaining</p>
+        </div>
+        <div class="tui-footer">—————————————————————————</div>
+      </div>
+    </div>
+
+    <!-- MOBILE (iPhone / Android) -->
+    <div class="preview-block">
+      <span class="preview-label">Mobile · iPhone / Android</span>
+      <div class="phone-frame">
+        <div class="phone-notch"><span></span></div>
+        <div class="phone-screen">
+          <div class="mobile-card">
+            <div class="top">
+              <p class="brand">NexusDesk</p>
+              <div class="icon-wrap">
+                <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </div>
+              <h3>Desktop Required</h3>
+              <p class="msg">
+                To ensure the best secure remote support experience and full feature support,
+                please open this meeting link on a desktop or laptop computer running Windows.
+              </p>
+              <p class="from">From <strong>NexusDesk</strong> · JULY 23, 2026</p>
+            </div>
+            <div class="copy-zone">
+              <button class="btn-copy" type="button" onclick="copyLink()">Copy link for your PC</button>
+              <p class="url-snippet" id="mobile-url">http://192.168.18.5:3000/join/6CFP3TR3</p>
+            </div>
+            <div class="secure">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7dd3a8" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              NexusDesk Secure
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const JOIN_URL = 'http://192.168.18.5:3000/join/6CFP3TR3';
+
+    function copyLink() {
+      navigator.clipboard?.writeText(JOIN_URL).then(() => {
+        alert('Link copied! Open it on a Windows PC.');
+      }).catch(() => {
+        prompt('Copy this link:', JOIN_URL);
+      });
+    }
+
+    // Allow ?code=XXXX in URL to preview a different code
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code');
+    if (code) {
+      const url = location.origin.replace(/:\d+$/, ':3000') + '/join/' + code;
+      document.getElementById('sample-url').textContent = url;
+      document.getElementById('desktop-url').textContent = url;
+      document.getElementById('mobile-url').textContent = url;
+    }
+  </script>
+</body>
+</html>

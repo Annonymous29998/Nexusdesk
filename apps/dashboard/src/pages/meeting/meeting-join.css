@@ -1,0 +1,312 @@
+/* Guest meeting landing — isolated from NexusDesk TUI */
+body.meeting-guest-page {
+  margin: 0;
+  background: #0f0f10 !important;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Google Sans', sans-serif !important;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.meeting-guest-page #root {
+  min-height: 100vh;
+}
+
+.meeting-loader {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+
+.meeting-loader__spin {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #e8e8e8;
+  border-top-color: #555;
+  border-radius: 50%;
+  animation: meeting-spin 0.8s linear infinite;
+}
+
+@keyframes meeting-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.meeting-mobile {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: #0f0f10;
+}
+
+.meeting-mobile__card {
+  width: 100%;
+  max-width: 400px;
+  background: #1a1a1c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.meeting-mobile__body {
+  padding: 2rem 1.5rem 1.25rem;
+}
+
+.meeting-mobile__brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.meeting-mobile__brand-text {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.meeting-mobile__icon-wrap {
+  width: 64px;
+  height: 64px;
+  margin: 1.5rem auto 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.meeting-mobile__icon-wrap--zoom {
+  background: rgba(45, 140, 255, 0.15);
+}
+
+.meeting-mobile__icon-wrap--meet {
+  background: rgba(29, 78, 216, 0.2);
+}
+
+.meeting-mobile h1 {
+  margin: 1.5rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.meeting-mobile__msg {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.meeting-mobile__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.85rem 1rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ── Zoom desktop ── */
+.meeting-zoom-desktop {
+  min-height: 100vh;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  color: #232333;
+}
+
+.meeting-zoom-desktop__logo {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #0b5cff;
+  letter-spacing: -0.03em;
+}
+
+.meeting-zoom-desktop h1 {
+  margin-top: 2rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #232333;
+}
+
+.meeting-zoom-desktop__sub {
+  margin-top: 0.75rem;
+  font-size: 0.9375rem;
+  color: #6e7680;
+  text-align: center;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.meeting-zoom-desktop__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2rem;
+  padding: 0.875rem 2rem;
+  min-width: 220px;
+  background: #0b5cff;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.meeting-zoom-desktop__btn:hover {
+  background: #0947cc;
+}
+
+.meeting-zoom-desktop__note {
+  margin-top: 1.5rem;
+  font-size: 0.8125rem;
+  color: #6e7680;
+  text-align: center;
+  max-width: 400px;
+}
+
+.meeting-zoom-desktop__secure {
+  margin-top: 2.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #6e7680;
+}
+
+.meeting-desktop__status {
+  margin-top: 1.25rem;
+  font-size: 0.875rem;
+  text-align: center;
+  max-width: 420px;
+}
+
+.meeting-desktop__status--zoom {
+  color: #0b5cff;
+}
+
+.meeting-desktop__status--meet {
+  color: #8ab4f8;
+}
+
+.meeting-desktop__steps {
+  margin: 1.5rem 0 0;
+  padding-left: 1.25rem;
+  max-width: 420px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.meeting-zoom-desktop .meeting-desktop__steps {
+  color: #6e7680;
+}
+
+.meeting-meet-desktop .meeting-desktop__steps {
+  color: #9aa0a6;
+}
+
+/* ── Google Meet desktop ── */
+.meeting-meet-desktop {
+  min-height: 100vh;
+  background: #202124;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  color: #e8eaed;
+}
+
+.meeting-meet-desktop__brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.meeting-meet-desktop__brand-text {
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: #e8eaed;
+}
+
+.meeting-meet-desktop h1 {
+  margin-top: 2rem;
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #e8eaed;
+}
+
+.meeting-meet-desktop__sub {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #9aa0a6;
+  text-align: center;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.meeting-meet-desktop__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2rem;
+  padding: 0.75rem 1.75rem;
+  min-width: 200px;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.meeting-meet-desktop__btn:hover {
+  background: #1765cc;
+}
+
+.meeting-meet-desktop__note {
+  margin-top: 1.25rem;
+  font-size: 0.8125rem;
+  color: #9aa0a6;
+  text-align: center;
+  max-width: 400px;
+}
+
+.meeting-meet-desktop__secure {
+  margin-top: 2.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #9aa0a6;
+}
+
+.meeting-error {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: #0f0f10;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  text-align: center;
+}

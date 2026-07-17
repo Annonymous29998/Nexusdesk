@@ -1,0 +1,62 @@
+# =============================================================================
+# coturn TURN/STUN server configuration template — NexusDesk
+#
+# This file is rendered by `npm run generate-coturn-config -w @nexusdesk/relay`
+# (see src/generate-config.ts) which substitutes the ${VAR} placeholders below
+# from the process environment and writes the result to /etc/coturn/turnserver.conf.
+#
+# It can also be templated directly by envsubst in a container entrypoint:
+#   envsubst < coturn.conf.template > /etc/coturn/turnserver.conf
+# =============================================================================
+
+# Listener
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+relay-ip=0.0.0.0
+external-ip=${TURN_EXTERNAL_IP}
+
+# Realm / auth
+realm=${TURN_REALM}
+server-name=${TURN_REALM}
+
+# Time-limited REST API credentials (must match RELAY's TURN_SHARED_SECRET)
+use-auth-secret
+static-auth-secret=${TURN_SHARED_SECRET}
+
+# Relay port range
+min-port=${TURN_MIN_PORT}
+max-port=${TURN_MAX_PORT}
+
+# TLS certificates (mount into the container / volume)
+cert=${TURN_TLS_CERT_PATH}
+pkey=${TURN_TLS_KEY_PATH}
+
+# Hardening
+no-multicast-peers
+no-cli
+no-tlsv1
+no-tlsv1_1
+fingerprint
+stale-nonce=600
+
+# Logging
+log-file=stdout
+verbose
+
+# Disable open relay to arbitrary loopback/link-local targets
+no-loopback-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+
+# Quotas
+total-quota=100
+bps-capacity=0
+max-bps=1000000

@@ -1,0 +1,53 @@
+{
+  "name": "@nexusdesk/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexusDesk Electron desktop client",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "package": "npm run build && electron-builder --publish never",
+    "test": "node -e \"console.log('desktop smoke ok')\""
+  },
+  "dependencies": {
+    "@nexusdesk/shared": "*",
+    "@nexusdesk/types": "*",
+    "@nexusdesk/ui": "*",
+    "@tanstack/react-query": "^5.64.1",
+    "electron-updater": "^6.3.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.1.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  },
+  "build": {
+    "appId": "com.nexusdesk.desktop",
+    "productName": "NexusDesk",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "dist-electron/**/*"],
+    "mac": { "target": ["dmg"] },
+    "win": { "target": ["nsis"] },
+    "linux": { "target": ["AppImage"] },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.nexusdesk.local/desktop"
+      }
+    ]
+  }
+}

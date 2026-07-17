@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexusdesk
+          POSTGRES_PASSWORD: nexusdesk
+          POSTGRES_DB: nexusdesk
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nexusdesk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://nexusdesk:nexusdesk@localhost:5432/nexusdesk?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-min-32-characters-long!!
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-32-characters-long!
+      SESSION_SECRET: ci-session-secret-min-32-characters-long!!
+      ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      AGENT_ENROLLMENT_SECRET: ci-agent-enrollment-secret!!
+      INTERNAL_API_TOKEN: ci-internal-api-token-min-32-chars!!
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui
+      - run: npm run prisma:generate -w @nexusdesk/api
+      - run: npm run typecheck -w @nexusdesk/api
+      - run: npm run test -w @nexusdesk/utils
+      - run: npm run test -w @nexusdesk/api
+      - run: npm run test -w @nexusdesk/agent
+      - run: npm run test -w @nexusdesk/signaling
+      - run: npm run test -w @nexusdesk/dashboard
+      - run: npm run build -w @nexusdesk/dashboard
+      - run: npm run build -w @nexusdesk/signaling
+      - run: npm run build -w @nexusdesk/relay
+      - run: npm run build -w @nexusdesk/agent
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/dashboard
+      - run: npm run test:e2e -w @nexusdesk/dashboard
+        env:
+          CI: true

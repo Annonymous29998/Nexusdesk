@@ -1,0 +1,30 @@
+{
+  "name": "@nexusdesk/shared",
+  "version": "0.1.0",
+  "description": "Shared constants, schemas, and protocol definitions for NexusDesk",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings 0",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node -e \"console.log('no tests yet')\""
+  },
+  "dependencies": {
+    "@nexusdesk/types": "*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+dist-electron/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+out/
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test / cache
+.cache/
+.tmp/
+.eslintcache
+.prettiercache
+test-results/
+
+# Secrets & keys
+*.pem
+*.key
+*.p12
+credentials.json
+service-account*.json
+
+# Misc
+tmp/
+temp/
+*.local
+.vercel
+.wrangler
+
+# Generated agent packages (build with `npm run pack:agent`)
+apps/agent/release/*.zip

@@ -1,0 +1,143 @@
+name: Windows Installer E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'apps/api/**'
+      - 'apps/agent/**'
+      - 'packages/**'
+      - 'scripts/pack-agent-windows.sh'
+      - 'scripts/windows-installer-e2e.ps1'
+      - '.github/workflows/windows-installer-e2e.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/agent/**'
+      - 'packages/**'
+      - 'scripts/pack-agent-windows.sh'
+      - 'scripts/windows-installer-e2e.ps1'
+      - '.github/workflows/windows-installer-e2e.yml'
+
+jobs:
+  windows-guest-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    env:
+      DATABASE_URL: postgresql://nexusdesk:nexusdesk@localhost:5432/nexusdesk?schema=public
+      REDIS_URL: redis://localhost:6379
+      API_URL: http://127.0.0.1:4000
+      APP_URL: http://127.0.0.1:3000
+      WS_URL: ws://127.0.0.1:4000
+      NODE_ENV: test
+      LOG_LEVEL: info
+      JWT_ACCESS_SECRET: ci-access-secret-min-32-characters-long!!
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-32-characters-long!
+      SESSION_SECRET: ci-session-secret-min-32-characters-long!!
+      ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      AGENT_ENROLLMENT_SECRET: ci-agent-enrollment-secret!!
+      INTERNAL_API_TOKEN: ci-internal-api-token-min-32-chars!!
+      SEED_ADMIN_EMAIL: admin@nexusdesk.com
+      SEED_ADMIN_PASSWORD: CiAdmin2026!Secure
+      SEED_ADMIN_NAME: CI Administrator
+      SEED_ORG_NAME: NexusDesk CI
+      SEED_ORG_SLUG: nexusdesk-ci
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Start Postgres and Redis
+        shell: pwsh
+        run: |
+          docker compose -f infra/docker/docker-compose.yml up -d postgres redis
+          $deadline = (Get-Date).AddMinutes(3)
+          do {
+            $pgOk = $false
+            $rdOk = $false
+            try {
+              docker compose -f infra/docker/docker-compose.yml exec -T postgres pg_isready -U nexusdesk | Out-Null
+              if ($LASTEXITCODE -eq 0) { $pgOk = $true }
+            } catch {}
+            try {
+              $pong = docker compose -f infra/docker/docker-compose.yml exec -T redis redis-cli ping
+              if ($pong -match 'PONG') { $rdOk = $true }
+            } catch {}
+            if ($pgOk -and $rdOk) { break }
+            Start-Sleep -Seconds 3
+          } while ((Get-Date) -lt $deadline)
+          if (-not ($pgOk -and $rdOk)) { throw 'Postgres/Redis not ready' }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared packages and API
+        run: |
+          npm run build -w @nexusdesk/types
+          npm run build -w @nexusdesk/utils
+          npm run build -w @nexusdesk/shared
+          npm run build -w @nexusdesk/agent
+          npm run prisma:generate -w @nexusdesk/api
+
+      - name: Pack Windows agent
+        shell: bash
+        run: npm run pack:agent
+
+      - name: Prepare database
+        working-directory: apps/api
+        run: |
+          npx prisma db push
+          npm run prisma:seed
+
+      - name: Start API server
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\nexusdesk-api.log"
+          $p = Start-Process -FilePath "npx" -ArgumentList "tsx","src/main.ts" -WorkingDirectory "$env:GITHUB_WORKSPACE/apps/api" -RedirectStandardOutput $log -RedirectStandardError $log -PassThru -WindowStyle Hidden
+          Set-Content -Path "$env:RUNNER_TEMP\api.pid" -Value $p.Id
+          Write-Host "API pid $($p.Id)"
+
+      - name: Download HTA, run installer, verify enrollment
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/scripts/windows-installer-e2e.ps1" -ApiUrl $env:API_URL
+
+      - name: Upload installer logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $logs = @(
+            "$env:ProgramData\NexusDesk\Agent\install.log",
+            "$env:ProgramData\NexusDesk\Agent\agent.log",
+            "$env:RUNNER_TEMP\nexusdesk-api.log"
+          )
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          foreach ($f in $logs) {
+            if (Test-Path $f) { Copy-Item $f "artifacts/" -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-logs
+          path: artifacts/
+
+      - name: Stop API server
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = "$env:RUNNER_TEMP\api.pid"
+          if (Test-Path $pidFile) {
+            $apiPid = Get-Content $pidFile
+            Stop-Process -Id $apiPid -Force -ErrorAction SilentlyContinue
+          }

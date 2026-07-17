@@ -1,0 +1,611 @@
+// NexusDesk API — Prisma schema (PostgreSQL)
+// UUID primary keys, explicit indexes for common access patterns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums (mirrors @nexusdesk/types enums.ts)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  owner
+  admin
+  operator
+  viewer
+  agent
+}
+
+enum DeviceStatus {
+  online
+  offline
+  pending
+  disabled
+  updating
+  error
+}
+
+enum DevicePlatform {
+  windows
+  macos
+  linux
+  unknown
+}
+
+enum SessionStatus {
+  pending
+  connecting
+  active
+  paused
+  ending
+  ended
+  failed
+  timed_out
+}
+
+enum RemoteConnectionMode {
+  control
+  view_only
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  declined
+  expired
+  revoked
+}
+
+enum GuestLinkStatus {
+  active
+  exhausted
+  expired
+  revoked
+}
+
+enum GuestInviteTemplate {
+  zoom
+  google_meet
+}
+
+enum NotificationChannel {
+  in_app
+  email
+  push
+  webhook
+}
+
+enum NotificationStatus {
+  unread
+  read
+  archived
+}
+
+enum LogSeverity {
+  debug
+  info
+  warn
+  error
+  critical
+}
+
+enum ApiKeyStatus {
+  active
+  revoked
+  expired
+}
+
+/// Lifecycle of a browser/device *authentication* session (distinct from a
+/// remote-desktop `RemoteSession`).
+enum AuthSessionStatus {
+  active
+  revoked
+  expired
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String    @unique
+  logoUrl       String?
+  plan          String    @default("free")
+  settings      Json      @default("{}")
+  ownerUserId   String?   @db.Uuid
+  maxDevices    Int       @default(25)
+  maxSeats      Int       @default(10)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  members       OrganizationMember[]
+  users         User[]
+  devices       Device[]
+  remoteSessions RemoteSession[]
+  invitations   Invitation[]
+  guestLinks    GuestAccessLink[]
+  apiKeys       ApiKey[]
+  notifications Notification[]
+  settingRows   Setting[]
+  activityLogs  ActivityLog[]
+  auditLogs     AuditLog[]
+  authSessions  AuthSession[]
+  remoteConnections RemoteConnection[]
+
+  @@index([slug])
+  @@index([deletedAt])
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  userId         String   @db.Uuid
+  role           UserRole @default(viewer)
+  joinedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Identity & auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String?   @db.Uuid
+  email               String    @unique
+  passwordHash        String
+  passwordSalt        String
+  emailVerifiedAt     DateTime?
+  displayName         String
+  avatarUrl           String?
+  role                UserRole  @default(viewer)
+  mfaEnabled          Boolean   @default(false)
+  failedLoginCount    Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  organization         Organization?         @relation(fields: [organizationId], references: [id])
+  memberships          OrganizationMember[]
+  authSessions         AuthSession[]
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+  emailVerifyTokens    EmailVerificationToken[]
+  rememberDevices      RememberDeviceToken[]
+  twoFactorSecret      TwoFactorSecret?
+  enrolledDevices      Device[]              @relation("DeviceEnrolledBy")
+  initiatedSessions    RemoteSession[]       @relation("RemoteSessionInitiatedBy")
+  remoteConnections    RemoteConnection[]
+  invitationsSent      Invitation[]          @relation("InvitationInvitedBy")
+  acceptedInvitations  Invitation[]          @relation("InvitationAcceptedBy")
+  guestLinksCreated    GuestAccessLink[]     @relation("GuestLinkCreatedBy")
+  apiKeysCreated       ApiKey[]
+  notifications        Notification[]
+  activityLogsAsActor  ActivityLog[]
+  auditLogsAsActor     AuditLog[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([organizationId, role])
+}
+
+model TwoFactorSecret {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  secretEnc   String
+  backupCodes String[]  @default([])
+  createdAt   DateTime  @default(now())
+  verifiedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Authentication session — one per logged-in device/browser. Distinct from
+/// `RemoteSession`, which represents a remote-desktop control session.
+model AuthSession {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String            @db.Uuid
+  organizationId String?           @db.Uuid
+  status         AuthSessionStatus @default(active)
+  userAgent      String?
+  ipAddress      String?
+  lastActiveAt   DateTime          @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime          @default(now())
+  revokedAt      DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String?   @db.Uuid
+  deviceId      String?   @db.Uuid
+  tokenHash     String    @unique
+  familyId      String
+  sessionId     String?   @db.Uuid
+  userAgent     String?
+  ip            String?
+  revokedAt     DateTime?
+  replacedById  String?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// "Remember this device" token issued after successful MFA.
+model RememberDeviceToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  label      String?
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Agent JWT tracking (hashed device tokens issued at enrollment).
+model DeviceToken {
+  id             String    @id @default(uuid()) @db.Uuid
+  deviceId       String    @db.Uuid
+  organizationId String    @db.Uuid
+  tokenHash      String
+  jti            String    @unique
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  lastUsedAt     DateTime?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([organizationId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Devices / agents
+// ---------------------------------------------------------------------------
+
+model Device {
+  id               String         @id @default(uuid()) @db.Uuid
+  organizationId   String         @db.Uuid
+  name             String
+  hostname         String
+  platform         DevicePlatform @default(unknown)
+  osVersion        String         @default("")
+  agentVersion     String         @default("")
+  status           DeviceStatus   @default(pending)
+  lastSeenAt       DateTime?
+  lastIp           String?
+  tags             String[]       @default([])
+  metadata         Json           @default("{}")
+  enrolledByUserId String?        @db.Uuid
+  publicKey        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  enrolledBy     User?              @relation("DeviceEnrolledBy", fields: [enrolledByUserId], references: [id])
+  credential     DeviceCredential?
+  deviceTokens   DeviceToken[]
+  refreshTokens  RefreshToken[]
+  remoteSessions RemoteSession[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([organizationId, status])
+  @@index([lastSeenAt])
+}
+
+/// Hashed shared-secret used by an agent to re-authenticate outside of the
+/// short-lived JWT device token (e.g. for WS reconnection challenges).
+model DeviceCredential {
+  id         String    @id @default(uuid()) @db.Uuid
+  deviceId   String    @unique @db.Uuid
+  secretHash String
+  algorithm  String    @default("sha256")
+  createdAt  DateTime  @default(now())
+  rotatedAt  DateTime?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Remote sessions & connections
+// ---------------------------------------------------------------------------
+
+/// A remote-desktop control/view session between an operator and a device.
+/// Corresponds to the `Session` entity exported from `@nexusdesk/types`.
+model RemoteSession {
+  id                String               @id @default(uuid()) @db.Uuid
+  organizationId    String               @db.Uuid
+  deviceId          String               @db.Uuid
+  initiatedByUserId String               @db.Uuid
+  status            SessionStatus        @default(pending)
+  mode              RemoteConnectionMode @default(control)
+  startedAt         DateTime?
+  endedAt           DateTime?
+  endReason         String?
+  clientIp          String?
+  recordingEnabled  Boolean             @default(false)
+  recordingUrl      String?
+  metadata          Json                 @default("{}")
+  notes             String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  device       Device             @relation(fields: [deviceId], references: [id])
+  initiatedBy  User               @relation("RemoteSessionInitiatedBy", fields: [initiatedByUserId], references: [id])
+  connections  RemoteConnection[]
+
+  @@index([organizationId])
+  @@index([deviceId])
+  @@index([status])
+  @@index([organizationId, status])
+  @@index([createdAt])
+}
+
+model RemoteConnection {
+  id             String               @id @default(uuid()) @db.Uuid
+  sessionId      String               @db.Uuid
+  organizationId String               @db.Uuid
+  deviceId       String               @db.Uuid
+  userId         String               @db.Uuid
+  mode           RemoteConnectionMode @default(control)
+  peerId         String
+  iceConnected   Boolean              @default(false)
+  connectedAt    DateTime?
+  disconnectedAt DateTime?
+  bytesSent      BigInt               @default(0)
+  bytesReceived  BigInt               @default(0)
+  latencyMs      Int?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  session      RemoteSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@index([organizationId])
+  @@index([deviceId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Org lifecycle: invitations, API keys, settings, notifications, logs
+// ---------------------------------------------------------------------------
+
+model Invitation {
+  id               String           @id @default(uuid()) @db.Uuid
+  organizationId   String           @db.Uuid
+  email            String
+  role             UserRole         @default(viewer)
+  status           InvitationStatus @default(pending)
+  invitedByUserId  String           @db.Uuid
+  tokenHash        String           @unique
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  acceptedUserId   String?          @db.Uuid
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedByUserId], references: [id])
+  acceptedBy   User?        @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// ScreenConnect-style guest access: share a link → guest installs Windows agent → device enrolls.
+model GuestAccessLink {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  createdByUserId    String          @db.Uuid
+  /// Short public code used in /join/:code URLs (e.g. 8-char alphanumeric).
+  code               String          @unique
+  /// Optional label shown in the dashboard ("Support for Alice").
+  label              String          @default("Remote support")
+  inviteTemplate     GuestInviteTemplate @default(zoom)
+  status             GuestLinkStatus @default(active)
+  /// Hash of the secret enrollment token embedded in the Windows installer.
+  tokenHash          String          @unique
+  expiresAt          DateTime
+  maxUses            Int             @default(1)
+  usedCount          Int             @default(0)
+  lastClaimedDeviceId String?        @db.Uuid
+  notes              String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  revokedAt          DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("GuestLinkCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([code])
+}
+
+model ApiKey {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @db.Uuid
+  name            String
+  prefix          String
+  keyHash         String       @unique
+  status          ApiKeyStatus @default(active)
+  scopes          String[]     @default([])
+  createdByUserId String       @db.Uuid
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdByUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([prefix])
+}
+
+model Setting {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  key            String
+  value          Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model Notification {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  userId         String              @db.Uuid
+  channel        NotificationChannel @default(in_app)
+  status         NotificationStatus  @default(unread)
+  title          String
+  body           String
+  href           String?
+  metadata       Json                @default("{}")
+  readAt         DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([userId, status])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  actorUserId    String?  @db.Uuid
+  actorType      String   @default("user")
+  action         String
+  resourceType   String
+  resourceId     String?
+  message        String
+  severity       LogSeverity @default(info)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+}
+
+model AuditLog {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @db.Uuid
+  actorUserId    String?     @db.Uuid
+  actorEmail     String?
+  actorIp        String?
+  action         String
+  resourceType   String
+  resourceId     String?
+  before         Json?
+  after          Json?
+  severity       LogSeverity @default(info)
+  requestId      String?
+  userAgent      String?
+  createdAt      DateTime    @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+}

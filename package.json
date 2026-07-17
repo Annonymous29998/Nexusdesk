@@ -1,0 +1,61 @@
+{
+  "name": "nexusdesk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexusDesk — production remote desktop platform",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "prepare": "husky || true",
+    "build": "npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui && npm run build --workspaces --if-present",
+    "build:turbo": "turbo run build",
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:turbo": "turbo run dev --parallel",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @nexusdesk/dashboard",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "typecheck": "npm run typecheck -w @nexusdesk/types && npm run typecheck -w @nexusdesk/utils && npm run typecheck -w @nexusdesk/shared && npm run typecheck -w @nexusdesk/ui && npm run typecheck -w @nexusdesk/api && npm run typecheck -w @nexusdesk/dashboard",
+    "typecheck:turbo": "turbo run typecheck",
+    "infra:up": "bash scripts/dev-up.sh",
+    "infra:native": "bash scripts/dev-up-native.sh",
+    "bootstrap": "bash scripts/bootstrap-local.sh",
+    "supabase:configure": "bash scripts/configure-supabase.sh",
+    "pack:agent": "bash scripts/pack-agent-windows.sh",
+    "smoke": "bash scripts/smoke-guest-flow.sh",
+    "test:installer:e2e": "pwsh -File scripts/windows-installer-e2e.ps1",
+    "clean": "npm run clean --workspaces --if-present && rm -rf node_modules"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-react": "^7.37.4",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  }
+}

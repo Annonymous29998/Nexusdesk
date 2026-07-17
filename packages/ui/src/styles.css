@@ -1,0 +1,31 @@
+:root,
+.dark {
+  /* Classic CRT / htop TUI — phosphor green on black */
+  --nd-background: 120 8% 4%;
+  --nd-foreground: 120 60% 72%;
+  --nd-muted: 120 10% 8%;
+  --nd-muted-foreground: 120 20% 48%;
+  --nd-card: 120 10% 6%;
+  --nd-card-foreground: 120 55% 74%;
+  --nd-border: 120 25% 18%;
+  --nd-primary: 120 90% 48%;
+  --nd-primary-foreground: 120 20% 4%;
+  --nd-secondary: 120 12% 10%;
+  --nd-secondary-foreground: 120 50% 70%;
+  --nd-accent: 185 85% 55%;
+  --nd-accent-foreground: 120 20% 4%;
+  --nd-destructive: 0 85% 55%;
+  --nd-destructive-foreground: 0 0% 100%;
+  --nd-ring: 120 90% 48%;
+  --nd-sidebar: 120 12% 5%;
+  --nd-warning: 45 95% 52%;
+  --nd-ok: 120 90% 48%;
+  --nd-info: 45 95% 52%;
+  --nd-cyan: 185 85% 55%;
+  --nd-magenta: 300 60% 65%;
+  --nd-radius: 0px;
+}
+
+html {
+  color-scheme: dark;
+}
