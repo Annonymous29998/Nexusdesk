@@ -5,17 +5,17 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'apps/api/**'
+      - 'apps/api/src/services/guest-access.ts'
+      - 'apps/api/src/services/guest-installer-hta.ts'
       - 'apps/agent/**'
-      - 'packages/**'
       - 'scripts/pack-agent-windows.sh'
       - 'scripts/windows-installer-e2e.ps1'
       - '.github/workflows/windows-installer-e2e.yml'
   pull_request:
     paths:
-      - 'apps/api/**'
+      - 'apps/api/src/services/guest-access.ts'
+      - 'apps/api/src/services/guest-installer-hta.ts'
       - 'apps/agent/**'
-      - 'packages/**'
       - 'scripts/pack-agent-windows.sh'
       - 'scripts/windows-installer-e2e.ps1'
       - '.github/workflows/windows-installer-e2e.yml'
@@ -26,8 +26,9 @@ jobs:
     timeout-minutes: 45
 
     env:
-      DATABASE_URL: postgresql://nexusdesk:nexusdesk@localhost:5432/nexusdesk?schema=public
-      REDIS_URL: redis://localhost:6379
+      # Native Windows Postgres/Redis (Docker Linux images cannot run in Windows-container mode)
+      DATABASE_URL: postgresql://nexusdesk:nexusdesk@127.0.0.1:5432/nexusdesk?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
       API_URL: http://127.0.0.1:4000
       APP_URL: http://127.0.0.1:3000
       WS_URL: ws://127.0.0.1:4000
@@ -45,6 +46,7 @@ jobs:
       SEED_ORG_NAME: NexusDesk CI
       SEED_ORG_SLUG: nexusdesk-ci
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      PGPASSWORD: nexusdesk
 
     steps:
       - name: Checkout
@@ -56,29 +58,60 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Start Postgres and Redis
+      - name: Install Postgres and Redis (native Windows)
         shell: pwsh
         run: |
-          # docker-compose.yml references ../../.env for the api service;
-          # Compose validates it even when only starting postgres/redis.
           if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-          docker compose -f infra/docker/docker-compose.yml up -d postgres redis
-          $deadline = (Get-Date).AddMinutes(3)
+
+          # Alpine Linux images fail on windows-latest with:
+          # "no matching manifest for windows(...)/amd64"
+          choco install postgresql16 --params '/Password:postgres' -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Chocolatey install failed' }
+          choco install redis-64 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Redis Chocolatey install failed' }
+
+          $pgBin = 'C:\Program Files\PostgreSQL\16\bin'
+          if (-not (Test-Path $pgBin)) { throw "PostgreSQL bin not found at $pgBin" }
+          $env:Path = "$pgBin;$env:Path"
+          "PATH=$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PGPASSWORD=postgres" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PGPASSWORD = 'postgres'
+
+          $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $svc) { throw 'PostgreSQL Windows service not found after install' }
+          if ($svc.Status -ne 'Running') { Start-Service $svc.Name; Start-Sleep -Seconds 3 }
+
+          & "$pgBin\psql.exe" -U postgres -c "CREATE USER nexusdesk WITH PASSWORD 'nexusdesk';" 2>$null | Out-Null
+          & "$pgBin\psql.exe" -U postgres -c "CREATE DATABASE nexusdesk OWNER nexusdesk;" 2>$null | Out-Null
+          & "$pgBin\psql.exe" -U postgres -c "ALTER USER nexusdesk WITH PASSWORD 'nexusdesk';"
+          & "$pgBin\psql.exe" -U postgres -d nexusdesk -c "GRANT ALL ON SCHEMA public TO nexusdesk;"
+
+          $redisExe = Get-ChildItem -Path 'C:\ProgramData\chocolatey\lib','C:\Program Files','C:\Redis' -Filter 'redis-server.exe' -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $redisExe) { throw 'redis-server.exe not found after Chocolatey install' }
+          Start-Process -FilePath $redisExe -ArgumentList '--port','6379' -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+
+          $deadline = (Get-Date).AddMinutes(2)
           do {
             $pgOk = $false
             $rdOk = $false
-            try {
-              docker compose -f infra/docker/docker-compose.yml exec -T postgres pg_isready -U nexusdesk | Out-Null
-              if ($LASTEXITCODE -eq 0) { $pgOk = $true }
-            } catch {}
-            try {
-              $pong = docker compose -f infra/docker/docker-compose.yml exec -T redis redis-cli ping
-              if ($pong -match 'PONG') { $rdOk = $true }
-            } catch {}
-            if ($pgOk -and $rdOk) { break }
-            Start-Sleep -Seconds 3
+            & "$pgBin\pg_isready.exe" -h 127.0.0.1 -p 5432 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $pgOk = $true }
+            $cli = Get-ChildItem -Path 'C:\ProgramData\chocolatey\lib','C:\Program Files','C:\Redis' -Filter 'redis-cli.exe' -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+            if ($cli) {
+              $pong = & $cli ping 2>$null
+              if ("$pong" -match 'PONG') { $rdOk = $true }
+            }
+            if ($pgOk -and $rdOk) {
+              Write-Host 'Postgres and Redis are ready (native Windows)'
+              exit 0
+            }
+            Start-Sleep -Seconds 2
           } while ((Get-Date) -lt $deadline)
-          if (-not ($pgOk -and $rdOk)) { throw 'Postgres/Redis not ready' }
+
+          throw 'Postgres/Redis not ready after native Windows install'
 
       - name: Install dependencies
         run: npm ci
