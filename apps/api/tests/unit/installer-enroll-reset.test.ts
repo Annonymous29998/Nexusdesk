@@ -24,7 +24,7 @@ describe('Windows installer enrollment reset', () => {
     expect(bat).toContain('ND_KEEPOPEN');
     expect(bat).toContain('cmd /k call');
     expect(bat).toContain('[1/2] Downloading package');
-    expect(bat).toContain('windows.ps1?v=13');
+    expect(bat).toContain('windows.ps1?v=14');
     expect(bat).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File');
     expect(bat).not.toContain('setup.b64');
   });
