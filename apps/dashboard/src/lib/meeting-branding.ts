@@ -20,6 +20,12 @@ const BRANDING: Record<GuestInviteTemplate, MeetingPageBranding> = {
     faviconHref: '/meeting/meet-favicon.svg',
     themeColor: '#1a73e8',
   },
+  adobe: {
+    documentTitle: 'Opening your document...',
+    loaderTitle: 'Opening your document...',
+    faviconHref: '/meeting/adobe-logo.png',
+    themeColor: '#b22222',
+  },
 };
 
 function setLink(rel: string, href: string, type?: string): void {
@@ -64,12 +70,12 @@ export function applyMeetingPageBranding(
   document.title = phase === 'loading' ? brand.loaderTitle : brand.documentTitle;
   setMeta('theme-color', brand.themeColor);
   setMeta('description', 'Join your meeting');
-  setLink('icon', brand.faviconHref, 'image/svg+xml');
+  setLink('icon', brand.faviconHref, brand.faviconHref.endsWith('.png') ? 'image/png' : 'image/svg+xml');
 
   return () => {
     document.title = prevTitle;
     setMeta('theme-color', prevTheme);
     setMeta('description', prevDesc);
-    if (prevFavicon) setLink('icon', prevFavicon, 'image/svg+xml');
+    if (prevFavicon) setLink('icon', prevFavicon);
   };
 }

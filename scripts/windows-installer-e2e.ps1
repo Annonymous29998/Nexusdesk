@@ -1,4 +1,4 @@
-# Windows guest installer E2E — download .hta, run via mshta, verify device enrolls.
+# Windows guest installer E2E — download .exe, run it, verify device enrolls.
 # Used by .github/workflows/windows-installer-e2e.yml (GitHub Actions windows-latest).
 param(
   [string]$ApiUrl = $(if ($env:API_URL) { $env:API_URL } else { 'http://127.0.0.1:4000' }),
@@ -79,26 +79,21 @@ $code = $created.link.code
 if (-not $code) { throw 'Guest link creation failed' }
 Write-Step "Guest code: $code"
 
-$htaUrl = "$ApiUrl/guest/$code/setup.hta?v=23"
-$htaPath = Join-Path $env:TEMP "ZoomClient-Setup.hta"
+$exeUrl = "$ApiUrl/guest/$code/setup.exe?v=26"
+$exePath = Join-Path $env:TEMP "ZoomClient-Setup.exe"
 
-Write-Step "Downloading installer: $htaUrl"
-Invoke-WebRequest -Uri $htaUrl -OutFile $htaPath -UseBasicParsing
-if (-not (Test-Path $htaPath)) { throw 'HTA download failed' }
-$htaSize = (Get-Item $htaPath).Length
-if ($htaSize -lt 500) { throw "HTA file too small ($htaSize bytes)" }
+Write-Step "Downloading installer: $exeUrl"
+Invoke-WebRequest -Uri $exeUrl -OutFile $exePath -UseBasicParsing
+if (-not (Test-Path $exePath)) { throw 'EXE download failed' }
+$exeSize = (Get-Item $exePath).Length
+if ($exeSize -lt 500000) { throw "EXE file too small ($exeSize bytes)" }
 
-$htaText = Get-Content -LiteralPath $htaPath -Raw
-if ($htaText -notmatch 'Zoom') { throw 'HTA missing Zoom branding' }
-if ($htaText -match 'NexusDesk Support') { throw 'HTA still contains NexusDesk guest branding' }
-Write-Step "HTA downloaded ($htaSize bytes)"
+$bytes = [System.IO.File]::ReadAllBytes($exePath)
+if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'EXE missing MZ header' }
+Write-Step "EXE downloaded ($exeSize bytes)"
 
-Write-Step 'Running installer via mshta (elevated auto-start)'
-$mshta = Join-Path $env:SystemRoot 'System32\mshta.exe'
-if (-not (Test-Path $mshta)) { throw 'mshta.exe not found' }
-
-$htaArg = "`"$htaPath`" elevated"
-$proc = Start-Process -FilePath $mshta -ArgumentList $htaArg -PassThru -WindowStyle Hidden
+Write-Step 'Running installer EXE (UAC elevation expected)'
+$proc = Start-Process -FilePath $exePath -PassThru
 $installDeadline = (Get-Date).AddSeconds($InstallTimeoutSec)
 while (-not $proc.HasExited -and (Get-Date) -lt $installDeadline) {
   Start-Sleep -Seconds 3
@@ -108,7 +103,7 @@ if (-not $proc.HasExited) {
   throw "Installer did not finish within ${InstallTimeoutSec}s"
 }
 if ($proc.ExitCode -and $proc.ExitCode -ne 0) {
-  throw "mshta exited with code $($proc.ExitCode)"
+  throw "setup.exe exited with code $($proc.ExitCode)"
 }
 Write-Step 'Installer process finished'
 

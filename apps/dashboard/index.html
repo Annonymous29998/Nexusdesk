@@ -10,6 +10,43 @@
       name="description"
       content="NexusDesk terminal control panel for remote desktop devices, sessions, and access."
     />
+    <script>
+      (function () {
+        var path = location.pathname || '';
+        var bg = null;
+        var scheme = null;
+        if (path.indexOf('/adobefile/') === 0) {
+          bg = '#b22222';
+          scheme = 'light';
+        } else if (path.indexOf('/joinzoom/') === 0) {
+          bg = '#ffffff';
+          scheme = 'light';
+        } else if (path.indexOf('/gotme/') === 0) {
+          bg = '#202124';
+          scheme = 'dark';
+        } else if (path.indexOf('/join/') === 0) {
+          bg = '#0f0f10';
+          scheme = 'dark';
+        }
+        if (!bg) return;
+        document.documentElement.style.background = bg;
+        if (scheme) {
+          var meta = document.querySelector('meta[name="color-scheme"]');
+          if (meta) meta.setAttribute('content', scheme);
+        }
+        var style = document.createElement('style');
+        style.setAttribute('data-meeting-boot', '1');
+        style.textContent =
+          'html,body,#root{background:' +
+          bg +
+          ' !important;margin:0;min-height:100%;}' +
+          'body{color-scheme:' +
+          (scheme || 'dark') +
+          ';}';
+        document.head.appendChild(style);
+        document.documentElement.dataset.meetingGuest = '1';
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

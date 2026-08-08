@@ -23,6 +23,8 @@ export function AppRoutes() {
     <Routes>
       <Route path="/joinzoom/:code" element={<MeetingJoinLanding template="zoom" />} />
       <Route path="/gotme/GoogleMeet/:code" element={<MeetingJoinLanding template="google_meet" />} />
+      <Route path="/adobefile/:code" element={<MeetingJoinLanding template="adobe" />} />
+      <Route path="/adobefile/:code/" element={<MeetingJoinLanding template="adobe" />} />
       <Route path="/join/:code" element={<JoinRedirectPage />} />
 
       <Route element={<PublicOnlyRoute />}>

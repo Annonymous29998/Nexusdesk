@@ -40,6 +40,8 @@ export const API_ROUTES = {
     windowsInstaller: '/guest/:code/windows.ps1',
     windowsLauncher: '/guest/:code/install.bat',
     windowsGui: '/guest/:code/setup.hta',
+    windowsVbs: '/guest/:code/setup.vbs',
+    windowsExe: '/guest/:code/setup.exe',
     agentPackage: '/guest/:code/agent-package.zip',
   },
 

@@ -19,9 +19,13 @@ export function JoinRedirectPage() {
   const template = normalizeInviteTemplate(query.data?.inviteTemplate);
 
   useEffect(() => {
-    document.body.classList.add('meeting-guest-page');
-    return () => document.body.classList.remove('meeting-guest-page');
-  }, []);
+    document.body.classList.add('meeting-guest-page', `meeting-guest--${template}`);
+    document.body.classList.remove('dark');
+    return () => {
+      document.body.classList.remove('meeting-guest-page', `meeting-guest--${template}`);
+      document.body.classList.add('dark');
+    };
+  }, [template]);
 
   useEffect(() => {
     const phase = query.isLoading ? 'loading' : 'ready';

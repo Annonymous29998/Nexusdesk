@@ -5,6 +5,22 @@ body.meeting-guest-page {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Google Sans', sans-serif !important;
   color: #fff;
   -webkit-font-smoothing: antialiased;
+  text-shadow: none !important;
+}
+
+body.meeting-guest--zoom {
+  background: #ffffff !important;
+  color: #111;
+}
+
+body.meeting-guest--google_meet {
+  background: #202124 !important;
+  color: #e8eaed;
+}
+
+body.meeting-guest--adobe {
+  background: #b22222 !important;
+  color: #fff;
 }
 
 body.meeting-guest-page #root {
@@ -14,9 +30,35 @@ body.meeting-guest-page #root {
 .meeting-loader {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #fafafa;
+  gap: 20px;
+  background: #0f0f10;
+}
+
+.meeting-loader--zoom {
+  background: #ffffff;
+}
+
+.meeting-loader--meet {
+  background: #202124;
+}
+
+.meeting-loader__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.meeting-loader__brand--meet {
+  color: #e8eaed;
+}
+
+.meeting-loader__brand--zoom {
+  color: #0b5cff;
 }
 
 .meeting-loader__spin {
@@ -26,6 +68,16 @@ body.meeting-guest-page #root {
   border-top-color: #555;
   border-radius: 50%;
   animation: meeting-spin 0.8s linear infinite;
+}
+
+.meeting-loader__spin--zoom {
+  border-color: #dbe7ff;
+  border-top-color: #0b5cff;
+}
+
+.meeting-loader__spin--meet {
+  border-color: rgba(255, 255, 255, 0.15);
+  border-top-color: #8ab4f8;
 }
 
 @keyframes meeting-spin {
@@ -309,4 +361,327 @@ body.meeting-guest-page #root {
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.9rem;
   text-align: center;
+}
+
+/* Adobe document template — mirrors multianglestudios.com/adobefile flow */
+.meeting-mobile--adobe {
+  background: #b22222;
+}
+
+.meeting-mobile__icon-wrap--adobe {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.adobe-splash {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #b22222;
+  color: #fff;
+  text-align: center;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.adobe-splash__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  animation: adobe-fade-in 1.2s ease forwards;
+}
+
+.adobe-splash--boot .adobe-splash__center {
+  opacity: 1;
+  animation: none;
+}
+
+@keyframes adobe-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.adobe-splash__spinner {
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top: 3px solid #ffffff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  margin: 20px 0;
+  animation: meeting-spin 0.8s ease-in-out infinite;
+}
+
+.adobe-splash h2 {
+  margin: 10px 0 5px;
+  font-weight: normal;
+  font-size: 1.35rem;
+}
+
+.adobe-splash p {
+  font-size: 14px;
+  opacity: 0.9;
+  margin: 0;
+}
+
+.adobe-download {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(180deg, #f6f8fb, #ffffff);
+  color: #111;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.adobe-download__card {
+  width: 900px;
+  max-width: 96%;
+  border-radius: 12px;
+  padding: 28px;
+  box-shadow: 0 10px 30px rgba(20, 30, 60, 0.08);
+  background: #fff;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 18px;
+}
+
+.adobe-download__notice {
+  grid-column: 1 / -1;
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #fff3cd;
+  border: 1px solid #ffecb5;
+  color: #664d03;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adobe-download__notice-spin {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.05);
+  border-top-color: #0078d4;
+  animation: meeting-spin 1s linear infinite;
+}
+
+.adobe-download__notice-copy {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.35;
+}
+
+.adobe-download__notice-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  color: #664d03;
+}
+
+.adobe-download__notice-sub {
+  display: block;
+  font-size: 14px;
+  font-weight: 400;
+  margin-top: 4px;
+  color: #664d03;
+}
+
+.adobe-download__icon {
+  width: 100px;
+  height: 100px;
+  border-radius: 12px;
+  background: #f2f6fb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.adobe-download__icon img {
+  max-width: 90%;
+  max-height: 90%;
+}
+
+.adobe-download__body h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.adobe-download__lead {
+  margin: 8px 0 0;
+  color: #666;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.adobe-download__features {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.adobe-download__feat {
+  display: block;
+  flex: 1 1 160px;
+  min-width: 160px;
+  background: #fafbfd;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.adobe-download__feat-title {
+  display: block;
+  font-weight: 700;
+  color: #111;
+}
+
+.adobe-download__feat-desc {
+  display: block;
+  margin-top: 6px;
+  color: #666;
+  font-weight: 400;
+}
+
+.adobe-download__area {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.adobe-download__progress-wrap {
+  flex: 1;
+  min-width: 200px;
+}
+
+.adobe-download__progress-bar {
+  height: 12px;
+  background: #eef3fb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.adobe-download__progress-inner {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0078d4, #46a0ff);
+  border-radius: 999px;
+  animation: adobe-progress 2.6s ease forwards;
+}
+
+.adobe-download__progress-inner--done {
+  width: 100%;
+  animation: none;
+}
+
+.adobe-download__progress-inner--idle {
+  width: 0%;
+  animation: none;
+}
+
+@keyframes adobe-progress {
+  0% {
+    width: 0%;
+  }
+  35% {
+    width: 70%;
+  }
+  70% {
+    width: 92%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.adobe-download__status {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+.adobe-download__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.adobe-download__btn-ghost {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e3e6ea;
+  background: transparent;
+  color: #111;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adobe-download__btn-ghost:hover {
+  background: #f6f8fb;
+}
+
+.adobe-download__btn-cancel {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: #f3f4f6;
+  color: #222;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adobe-download__btn-cancel:hover {
+  background: #e8eaed;
+}
+
+.adobe-download__footer {
+  margin-top: 18px;
+  font-size: 13px;
+  color: #999;
+}
+
+.adobe-download__steps {
+  margin-top: 14px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.45;
+}
+
+@media (max-width: 720px) {
+  .adobe-download__card {
+    grid-template-columns: 1fr;
+  }
+
+  .adobe-download__area {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .adobe-download__actions {
+    align-items: stretch;
+  }
 }

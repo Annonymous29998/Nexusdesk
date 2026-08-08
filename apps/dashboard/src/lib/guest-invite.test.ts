@@ -37,6 +37,20 @@ describe('formatGuestInviteText', () => {
     expect(text.match(/gotme\/GoogleMeet\/ABC12345/g)?.length).toBe(2);
   });
 
+  it('formats adobe document template', () => {
+    const url = buildGuestJoinUrl('http://192.168.18.5:3000', 'ABC12345', 'adobe');
+    expect(url).toBe('http://192.168.18.5:3000/adobefile/ABC12345');
+
+    const text = formatGuestInviteText({
+      joinUrl: url,
+      template: 'adobe',
+      expiresAt: '2026-07-14T12:00:00.000Z',
+    });
+
+    expect(text).toContain('Document shared with you');
+    expect(text).toContain('/adobefile/ABC12345');
+  });
+
   it('shows no expiration for never-expiring links', () => {
     const text = formatGuestInviteText({
       joinUrl: 'http://192.168.18.5:3000/joinzoom/ABC12345',

