@@ -1,17 +1,20 @@
 {
-  "buildCommand": "cd ../.. && npm ci && npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui && npm run build -w @nexusdesk/dashboard",
-  "outputDirectory": "dist",
-  "installCommand": "cd ../.. && npm ci",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "installCommand": "cd ../.. && npm ci",
+  "buildCommand": "cd ../.. && npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui && npm run build -w @nexusdesk/dashboard",
+  "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/meeting/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
   ]
 }
