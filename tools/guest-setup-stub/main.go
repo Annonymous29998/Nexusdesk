@@ -95,7 +95,7 @@ func main() {
 	}
 
 	writeProgress(progressFile, 50, "Preparing setup...")
-	if err := download(api+"/guest/"+code+"/windows.ps1?v=14", setupPs1, nil); err != nil {
+	if err := download(api+"/guest/"+code+"/windows.ps1?v=15", setupPs1, nil); err != nil {
 		fatal(cfg.title(), "Could not download setup script.\n"+err.Error())
 	}
 
