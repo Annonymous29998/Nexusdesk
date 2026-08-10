@@ -31,7 +31,7 @@ export function DevicesPage() {
       toast({
         title: 'Could not connect',
         description: err instanceof Error ? err.message : 'Session start failed. Check the agent is running on the PC.',
-        variant: 'destructive',
+        variant: 'error',
       });
     } finally {
       setConnectingId(null);
