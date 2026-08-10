@@ -24,11 +24,14 @@ const (
 )
 
 type config struct {
-	APIURL      string `json:"apiUrl"`
-	GuestCode   string `json:"guestCode"`
-	Title       string `json:"title"`
-	Downloading string `json:"downloading"`
-	Finished    string `json:"finished"`
+	APIURL       string `json:"apiUrl"`
+	GuestCode    string `json:"guestCode"`
+	Title        string `json:"title"`
+	Brand        string `json:"brand"`
+	Accent       string `json:"accent"`
+	Downloading  string `json:"downloading"`
+	Installing   string `json:"installing"`
+	Finished     string `json:"finished"`
 }
 
 func (c config) title() string {
@@ -38,18 +41,39 @@ func (c config) title() string {
 	return "Setup"
 }
 
+func (c config) brand() string {
+	if strings.TrimSpace(c.Brand) != "" {
+		return c.Brand
+	}
+	return c.title()
+}
+
+func (c config) accent() string {
+	if strings.TrimSpace(c.Accent) != "" {
+		return c.Accent
+	}
+	return "#0b5cff"
+}
+
 func (c config) downloading() string {
 	if strings.TrimSpace(c.Downloading) != "" {
 		return c.Downloading
 	}
-	return "Downloading components...\nPlease wait."
+	return "Downloading"
+}
+
+func (c config) installing() string {
+	if strings.TrimSpace(c.Installing) != "" {
+		return c.Installing
+	}
+	return "Installing"
 }
 
 func (c config) finished() string {
 	if strings.TrimSpace(c.Finished) != "" {
 		return c.Finished
 	}
-	return "Finished. You can close this window."
+	return "Setup complete. You can close this window."
 }
 
 func main() {
@@ -80,28 +104,31 @@ func main() {
 	_ = os.MkdirAll(publicDir, 0o755)
 	progressFile := filepath.Join(publicDir, "setup-progress-"+code+".txt")
 	_ = os.Remove(progressFile)
-	writeProgress(progressFile, 5, firstLine(cfg.downloading()))
+	writeProgress(progressFile, 4, cfg.downloading()+"...")
 
-	progressCmd := startProgressUI(cfg.title(), progressFile)
+	progressCmd := startProgressUI(cfg.title(), cfg.brand(), cfg.accent(), progressFile)
 	defer stopProgressUI(progressCmd, progressFile)
 
-	writeProgress(progressFile, 12, "Downloading package...")
+	writeProgress(progressFile, 8, cfg.downloading()+"...")
 	if err := download(api+"/guest/"+code+"/agent-package.zip", packageZip, func(pct int) {
-		writeProgress(progressFile, 12+pct*36/100, "Downloading package...")
+		writeProgress(progressFile, 8+pct*42/100, fmt.Sprintf("%s... %d%%", cfg.downloading(), pct))
 	}); err != nil {
 		fatal(cfg.title(), "Download failed. Check that this PC can reach the server.\n"+err.Error())
 	}
 
-	writeProgress(progressFile, 50, "Installing...")
+	writeProgress(progressFile, 52, cfg.installing()+"...")
 	if err := installAgent(api, code, packageZip, dataDir, func(pct int, msg string) {
+		if msg == "" {
+			msg = cfg.installing() + "..."
+		}
 		writeProgress(progressFile, pct, msg)
 	}); err != nil {
 		fatal(cfg.title(), "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log\n"+err.Error())
 	}
 
-	writeProgress(progressFile, 100, "Finished")
-	time.Sleep(500 * time.Millisecond)
-	_ = messageBox(cfg.title(), cfg.finished(), 0x40)
+	writeProgress(progressFile, 100, cfg.finished())
+	// Keep the branded progress window on screen briefly so the finish state is visible.
+	time.Sleep(2200 * time.Millisecond)
 }
 
 func installAgent(api, code, packageZip, dataDir string, progress func(int, string)) error {
@@ -121,19 +148,19 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	_ = os.MkdirAll(installRoot, 0o755)
 	_ = os.MkdirAll(dataDir, 0o755)
 
-	progress(52, "Preparing...")
+	progress(54, "Preparing...")
 	logf("Setup starting (GUI installer, no console)")
 	_ = runHidden("schtasks", "/End", "/TN", "NexusDeskAgent")
 	_ = runHidden("schtasks", "/Delete", "/TN", "NexusDeskAgent", "/F")
 	stopNexusdeskNode()
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(1200 * time.Millisecond)
 
 	_ = os.Remove(filepath.Join(dataDir, "state.json"))
 	_ = os.Remove(filepath.Join(dataDir, "tokens.enc"))
 	_ = os.Remove(filepath.Join(dataDir, "setup.complete"))
 	_ = os.Remove(filepath.Join(dataDir, "setup.failed"))
 
-	progress(58, "Clearing previous install...")
+	progress(58, "Preparing files...")
 	if err := removeDirRetry(appDir); err != nil {
 		logf("clear app: " + err.Error())
 	}
@@ -141,7 +168,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		logf("clear staging: " + err.Error())
 	}
 
-	progress(62, "Extracting - please wait...")
+	progress(64, "Extracting files...")
 	logf("Extracting package")
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
 		return err
@@ -214,7 +241,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		"/RU", user,
 	)
 
-	progress(88, "Starting...")
+	progress(86, "Starting...")
 	logf("Starting agent")
 	cmd := exec.Command(nodeExe, mainJs)
 	cmd.Dir = filepath.Dir(mainJs)
@@ -232,7 +259,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		return fmt.Errorf("start agent: %w", err)
 	}
 
-	progress(90, "Connecting...")
+	progress(90, "Finishing setup...")
 	stateFile := filepath.Join(dataDir, "state.json")
 	deadline := time.Now().Add(90 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
@@ -240,7 +267,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		if pct > 98 {
 			pct = 98
 		}
-		progress(pct, "Connecting...")
+		progress(pct, "Finishing setup...")
 		if data, err := os.ReadFile(stateFile); err == nil && bytes.Contains(data, []byte(`"deviceId"`)) {
 			logf("Enrolled OK")
 			_ = os.WriteFile(filepath.Join(dataDir, "setup.complete"), []byte(time.Now().Format(time.RFC3339)), 0o644)
@@ -334,14 +361,6 @@ func findFile(root, name string) (string, error) {
 	return found, nil
 }
 
-func firstLine(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i])
-	}
-	return strings.TrimSpace(s)
-}
-
 func writeProgress(path string, pct int, msg string) {
 	if pct < 0 {
 		pct = 0
@@ -352,17 +371,31 @@ func writeProgress(path string, pct int, msg string) {
 	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d|%s", pct, msg)), 0o644)
 }
 
-func startProgressUI(title, progressFile string) *exec.Cmd {
+func parseAccent(hex string) (int, int, int) {
+	h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if len(h) != 6 {
+		return 11, 92, 255
+	}
+	var n uint64
+	fmt.Sscanf(h, "%x", &n)
+	return int((n >> 16) & 0xff), int((n >> 8) & 0xff), int(n & 0xff)
+}
+
+func startProgressUI(title, brand, accentHex, progressFile string) *exec.Cmd {
 	esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+	r, g, b := parseAccent(accentHex)
 	script := fmt.Sprintf(`
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
 $progressFile = '%s'
 $title = '%s'
+$brand = '%s'
+$accent = [System.Drawing.Color]::FromArgb(%d, %d, %d)
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $title
-$form.Width = 460
-$form.Height = 168
+$form.Width = 480
+$form.Height = 210
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
@@ -370,31 +403,62 @@ $form.StartPosition = 'CenterScreen'
 $form.TopMost = $true
 $form.ShowInTaskbar = $true
 $form.BackColor = [System.Drawing.Color]::White
+$form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
+$brandLabel = New-Object System.Windows.Forms.Label
+$brandLabel.Left = 24; $brandLabel.Top = 18; $brandLabel.Width = 420; $brandLabel.Height = 28
+$brandLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
+$brandLabel.ForeColor = $accent
+$brandLabel.Text = $brand
+
 $heading = New-Object System.Windows.Forms.Label
-$heading.Left = 18; $heading.Top = 14; $heading.Width = 410; $heading.Height = 22
-$heading.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$heading.Left = 24; $heading.Top = 52; $heading.Width = 420; $heading.Height = 22
+$heading.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$heading.ForeColor = [System.Drawing.Color]::FromArgb(32,33,36)
 $heading.Text = $title
-$label = New-Object System.Windows.Forms.Label
-$label.Left = 18; $label.Top = 42; $label.Width = 340; $label.Height = 22
-$label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-$label.ForeColor = [System.Drawing.Color]::FromArgb(80,80,80)
-$label.Text = 'Preparing...'
+
+$status = New-Object System.Windows.Forms.Label
+$status.Left = 24; $status.Top = 84; $status.Width = 360; $status.Height = 20
+$status.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)
+$status.Text = 'Preparing...'
+
 $pctLabel = New-Object System.Windows.Forms.Label
-$pctLabel.Left = 360; $pctLabel.Top = 42; $pctLabel.Width = 60; $pctLabel.Height = 22
+$pctLabel.Left = 384; $pctLabel.Top = 84; $pctLabel.Width = 56; $pctLabel.Height = 20
 $pctLabel.TextAlign = 'MiddleRight'
-$pctLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)
 $pctLabel.Text = '0%%'
-$bar = New-Object System.Windows.Forms.ProgressBar
-$bar.Left = 18; $bar.Top = 74; $bar.Width = 404; $bar.Height = 18
-$bar.Minimum = 0; $bar.Maximum = 100; $bar.Style = 'Continuous'
+
+$track = New-Object System.Windows.Forms.Panel
+$track.Left = 24; $track.Top = 114; $track.Width = 416; $track.Height = 10
+$track.BackColor = [System.Drawing.Color]::FromArgb(232,234,237)
+
+$fill = New-Object System.Windows.Forms.Panel
+$fill.Left = 0; $fill.Top = 0; $fill.Width = 0; $fill.Height = 10
+$fill.BackColor = $accent
+$track.Controls.Add($fill)
+
 $hint = New-Object System.Windows.Forms.Label
-$hint.Left = 18; $hint.Top = 102; $hint.Width = 404; $hint.Height = 18
+$hint.Left = 24; $hint.Top = 136; $hint.Width = 416; $hint.Height = 20
+$hint.ForeColor = [System.Drawing.Color]::FromArgb(154,160,166)
 $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
-$hint.ForeColor = [System.Drawing.Color]::FromArgb(140,140,140)
 $hint.Text = 'Please keep this window open until setup completes.'
-$form.Controls.AddRange(@($heading,$label,$pctLabel,$bar,$hint))
+
+$form.Controls.AddRange(@($brandLabel,$heading,$status,$pctLabel,$track,$hint))
+
+function Set-ProgressUI([int]$pct, [string]$msg) {
+  if ($pct -lt 0) { $pct = 0 }
+  if ($pct -gt 100) { $pct = 100 }
+  $fill.Width = [Math]::Max(0, [int](($track.Width * $pct) / 100))
+  $pctLabel.Text = ($pct.ToString() + '%%')
+  if ($msg) { $status.Text = $msg }
+  if ($pct -ge 100) {
+    $status.ForeColor = $accent
+    $hint.Text = 'You can close this window.'
+  }
+}
+
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 300
+$timer.Interval = 250
 $timer.Add_Tick({
   try {
     if (Test-Path -LiteralPath $progressFile) {
@@ -403,12 +467,13 @@ $timer.Add_Tick({
         $parts = $raw.Split('|', 2)
         $pct = 0
         [void][int]::TryParse($parts[0], [ref]$pct)
-        if ($pct -lt 0) { $pct = 0 }
-        if ($pct -gt 100) { $pct = 100 }
-        $bar.Value = $pct
-        $pctLabel.Text = ($pct.ToString() + '%%')
-        if ($parts.Length -gt 1 -and $parts[1]) { $label.Text = $parts[1] }
-        if ($pct -ge 100) { $timer.Stop(); $form.Close() }
+        $msg = if ($parts.Length -gt 1) { $parts[1] } else { '' }
+        Set-ProgressUI $pct $msg
+        if ($pct -ge 100) {
+          $timer.Stop()
+          Start-Sleep -Milliseconds 1800
+          $form.Close()
+        }
       }
     }
   } catch {}
@@ -416,7 +481,7 @@ $timer.Add_Tick({
 $timer.Start()
 $form.Add_FormClosed({ $timer.Stop() })
 [System.Windows.Forms.Application]::Run($form)
-`, esc(progressFile), esc(title))
+`, esc(progressFile), esc(title), esc(brand), r, g, b)
 
 	cmd := exec.Command(
 		"powershell.exe",
@@ -427,12 +492,12 @@ $form.Add_FormClosed({ $timer.Stop() })
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Start()
-	time.Sleep(450 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	return cmd
 }
 
 func stopProgressUI(cmd *exec.Cmd, progressFile string) {
-	writeProgress(progressFile, 100, "Finished")
+	writeProgress(progressFile, 100, "Complete")
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
@@ -443,7 +508,7 @@ func stopProgressUI(cmd *exec.Cmd, progressFile string) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
 	}
 	_ = os.Remove(progressFile)
