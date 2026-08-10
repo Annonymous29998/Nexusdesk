@@ -252,7 +252,7 @@ export class GuestAccessService {
     });
 
     const joinUrl = buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate);
-    const installerUrl = `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`;
+    const installerUrl = `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}`;
 
     return {
       link,
