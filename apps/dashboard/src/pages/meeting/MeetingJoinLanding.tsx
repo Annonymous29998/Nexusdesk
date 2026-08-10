@@ -226,10 +226,15 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
 }
 
 function DownloadSteps({ fileName }: { fileName: string }) {
+  const kind = fileName.toLowerCase().endsWith('.hta')
+    ? 'installer (.hta)'
+    : fileName.toLowerCase().endsWith('.exe')
+      ? 'installer (.exe)'
+      : 'installer';
   return (
     <ol className="meeting-desktop__steps">
       <li>Your download should start automatically ({fileName}).</li>
-      <li>Open your Downloads folder and double-click the .exe file.</li>
+      <li>Open your Downloads folder and double-click the {kind} file.</li>
       <li>
         If Windows shows a blue warning, click <strong>More info</strong>, then{' '}
         <strong>Run anyway</strong>.

