@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
   && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build -w @nexusdesk/types \
+# Prisma client must be generated before tsc (GuestAccessLink, etc.).
+RUN cd apps/api && npx prisma generate && cd ../.. \
+  && npm run build -w @nexusdesk/types \
   && npm run build -w @nexusdesk/utils \
   && npm run build -w @nexusdesk/shared \
   && npm run build -w @nexusdesk/api

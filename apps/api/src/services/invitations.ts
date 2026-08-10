@@ -246,7 +246,7 @@ export class SettingsService {
     return {
       organizationId,
       settings: org.settings,
-      extras: Object.fromEntries(extras.map((s) => [s.key, s.value])),
+      extras: Object.fromEntries(extras.map((s: { key: string; value: unknown }) => [s.key, s.value])),
     };
   }
 

@@ -147,8 +147,8 @@ export class RemoteSessionManager {
     const conns = await this.connections.listBySession(sessionId);
     await Promise.all(
       conns
-        .filter((c) => !c.disconnectedAt)
-        .map((c) =>
+        .filter((c: { disconnectedAt: Date | null }) => !c.disconnectedAt)
+        .map((c: { id: string }) =>
           this.connections.update(c.id, {
             disconnectedAt: endedAt,
             iceConnected: false,

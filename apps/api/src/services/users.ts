@@ -99,7 +99,7 @@ export class OrganizationsService {
       include: { organization: true },
       orderBy: { joinedAt: 'asc' },
     });
-    return memberships.map((m) => m.organization);
+    return memberships.map((m: { organization: (typeof memberships)[number]['organization'] }) => m.organization);
   }
 
   async update(

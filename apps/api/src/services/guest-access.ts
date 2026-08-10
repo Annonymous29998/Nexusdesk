@@ -1,4 +1,4 @@
-import type { PrismaClient, GuestAccessLink, GuestLinkStatus } from '@prisma/client';
+import type { PrismaClient, Prisma, GuestAccessLink, GuestLinkStatus } from '@prisma/client';
 import { ERROR_CODES } from '@nexusdesk/shared';
 import { randomAlphanumeric, parseDuration } from '@nexusdesk/utils';
 import { hashToken, generateOpaqueToken } from '../lib/tokens.js';
@@ -387,7 +387,7 @@ export class GuestAccessService {
   }
 
   async consume(linkId: string, deviceId: string): Promise<GuestAccessLink> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const link = await tx.guestAccessLink.findUnique({ where: { id: linkId } });
       if (!link) {
         throw AppError.notFound('Guest link not found', ERROR_CODES.GUEST_LINK_INVALID);
