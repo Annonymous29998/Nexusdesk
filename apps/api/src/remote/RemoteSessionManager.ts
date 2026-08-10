@@ -60,10 +60,10 @@ export class RemoteSessionManager {
       throw AppError.badRequest('Device is offline', ERROR_CODES.DEVICE_OFFLINE);
     }
 
-    const active = await this.sessions.countActiveForDevice(input.deviceId);
-    if (active >= env.MAX_CONCURRENT_SESSIONS_PER_DEVICE) {
-      throw AppError.badRequest('Session limit reached', ERROR_CODES.SESSION_LIMIT_REACHED);
-    }
+    // Previous Connect attempts often leave pending/active rows; clear them so
+    // the technician can always start a fresh session.
+    await this.sessions.endOpenForDevice(input.deviceId, 'replaced_by_new_session');
+    this.byDevice.delete(input.deviceId);
 
     const mode = input.mode ?? RemoteConnectionMode.Control;
     const session = await this.sessions.create({

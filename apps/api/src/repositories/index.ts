@@ -381,6 +381,22 @@ export class RemoteSessionRepository {
       },
     });
   }
+
+  /** Close leftover open sessions so Connect can start a fresh one. */
+  endOpenForDevice(deviceId: string, reason: string) {
+    const endedAt = new Date();
+    return this.prisma.remoteSession.updateMany({
+      where: {
+        deviceId,
+        status: { in: ['pending', 'connecting', 'active', 'paused'] },
+      },
+      data: {
+        status: 'ended',
+        endedAt,
+        endReason: reason,
+      },
+    });
+  }
 }
 
 export class RemoteConnectionRepository {
