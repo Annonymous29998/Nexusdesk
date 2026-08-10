@@ -146,7 +146,6 @@ func writeProgress(path string, pct int, msg string) {
 }
 
 func startProgressUI(title, progressFile string) *exec.Cmd {
-	// Escape for single-quoted PowerShell string literals.
 	esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
 	script := fmt.Sprintf(`
 Add-Type -AssemblyName System.Windows.Forms
@@ -155,32 +154,62 @@ $progressFile = '%s'
 $title = '%s'
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $title
-$form.Width = 440
-$form.Height = 150
+$form.Width = 460
+$form.Height = 168
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
 $form.StartPosition = 'CenterScreen'
 $form.TopMost = $true
 $form.ShowInTaskbar = $true
+$form.BackColor = [System.Drawing.Color]::White
+$heading = New-Object System.Windows.Forms.Label
+$heading.Left = 18
+$heading.Top = 14
+$heading.Width = 410
+$heading.Height = 22
+$heading.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$heading.Text = $title
 $label = New-Object System.Windows.Forms.Label
-$label.Left = 16
-$label.Top = 18
-$label.Width = 390
-$label.Height = 36
+$label.Left = 18
+$label.Top = 42
+$label.Width = 340
+$label.Height = 22
+$label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$label.ForeColor = [System.Drawing.Color]::FromArgb(80,80,80)
 $label.Text = 'Preparing...'
+$pctLabel = New-Object System.Windows.Forms.Label
+$pctLabel.Left = 360
+$pctLabel.Top = 42
+$pctLabel.Width = 60
+$pctLabel.Height = 22
+$pctLabel.TextAlign = 'MiddleRight'
+$pctLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(80,80,80)
+$pctLabel.Text = '0%%'
 $bar = New-Object System.Windows.Forms.ProgressBar
-$bar.Left = 16
-$bar.Top = 64
-$bar.Width = 390
-$bar.Height = 22
+$bar.Left = 18
+$bar.Top = 74
+$bar.Width = 404
+$bar.Height = 18
 $bar.Minimum = 0
 $bar.Maximum = 100
 $bar.Style = 'Continuous'
+$hint = New-Object System.Windows.Forms.Label
+$hint.Left = 18
+$hint.Top = 102
+$hint.Width = 404
+$hint.Height = 18
+$hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+$hint.ForeColor = [System.Drawing.Color]::FromArgb(140,140,140)
+$hint.Text = 'Please keep this window open until setup completes.'
+$form.Controls.Add($heading)
 $form.Controls.Add($label)
+$form.Controls.Add($pctLabel)
 $form.Controls.Add($bar)
+$form.Controls.Add($hint)
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 350
+$timer.Interval = 300
 $timer.Add_Tick({
   try {
     if (Test-Path -LiteralPath $progressFile) {
@@ -192,6 +221,7 @@ $timer.Add_Tick({
         if ($pct -lt 0) { $pct = 0 }
         if ($pct -gt 100) { $pct = 100 }
         $bar.Value = $pct
+        $pctLabel.Text = ($pct.ToString() + '%%')
         if ($parts.Length -gt 1 -and $parts[1]) { $label.Text = $parts[1] }
         if ($pct -ge 100) { $timer.Stop(); $form.Close() }
       }
@@ -212,8 +242,7 @@ $form.Add_FormClosed({ $timer.Stop() })
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Start()
-	// Give the form a moment to appear before heavy work.
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(450 * time.Millisecond)
 	return cmd
 }
 

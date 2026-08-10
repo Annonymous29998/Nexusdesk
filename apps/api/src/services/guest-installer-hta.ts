@@ -479,12 +479,13 @@ function doInstall() {
 function onLoad() {
   window.resizeTo(SHELL_W, SHELL_H);
   window.moveTo((screen.width - SHELL_W) / 2, (screen.height - SHELL_H) / 2);
-  setStatus("Click Continue to download and set up.");
+  setStatus("Preparing download...");
   setProgress(0);
   var btn = document.getElementById("startBtn");
-  btn.innerText = "Continue";
-  btn.disabled = false;
-  btn.onclick = startInstall;
+  btn.innerText = "Please wait";
+  btn.disabled = true;
+  // Official-style: start download/setup immediately (no extra Continue click).
+  window.setTimeout(startInstall, 400);
 }
 </script>
 </head>

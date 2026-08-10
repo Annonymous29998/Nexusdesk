@@ -223,6 +223,113 @@ body.meeting-guest-page #root {
   background: #0947cc;
 }
 
+/* Shared Zoom / Meet browser download progress (matches Adobe-style UX) */
+.brand-dl {
+  width: 100%;
+  max-width: 440px;
+  margin-top: 1.75rem;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid #e8eaed;
+  background: #f8f9fa;
+}
+
+.brand-dl--meet {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.brand-dl__progress-bar {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e8eaed;
+}
+
+.brand-dl--meet .brand-dl__progress-bar {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.brand-dl__progress-inner {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+}
+
+.brand-dl--zoom .brand-dl__progress-inner--run,
+.brand-dl--zoom .brand-dl__progress-inner--done {
+  background: linear-gradient(90deg, #0b5cff, #4d8dff);
+}
+
+.brand-dl--meet .brand-dl__progress-inner--run,
+.brand-dl--meet .brand-dl__progress-inner--done {
+  background: linear-gradient(90deg, #1a73e8, #8ab4f8);
+}
+
+.brand-dl__progress-inner--run {
+  animation: brand-dl-progress 2.6s ease forwards;
+}
+
+.brand-dl__progress-inner--done {
+  width: 100%;
+  animation: none;
+}
+
+.brand-dl__progress-inner--idle {
+  width: 0%;
+  animation: none;
+}
+
+@keyframes brand-dl-progress {
+  0% { width: 0%; }
+  35% { width: 68%; }
+  70% { width: 90%; }
+  100% { width: 100%; }
+}
+
+.brand-dl__status {
+  margin-top: 0.65rem;
+  font-size: 0.8125rem;
+  color: #5f6368;
+  line-height: 1.4;
+}
+
+.brand-dl--meet .brand-dl__status {
+  color: #9aa0a6;
+}
+
+.brand-dl__actions {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.brand-dl__btn {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: #0b5cff;
+}
+
+.brand-dl--meet .brand-dl__btn {
+  color: #8ab4f8;
+}
+
+.brand-dl__cancel {
+  border: 0;
+  background: transparent;
+  color: #80868b;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.brand-dl--meet .brand-dl__cancel {
+  color: #9aa0a6;
+}
+
 .meeting-zoom-desktop__note {
   margin-top: 1.5rem;
   font-size: 0.8125rem;
