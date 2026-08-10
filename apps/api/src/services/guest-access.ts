@@ -340,7 +340,7 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=26`,
+      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=27`,
       installerFileName: installerGuiFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
