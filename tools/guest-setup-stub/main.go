@@ -150,8 +150,6 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 
 	progress(54, "Preparing...")
 	logf("Setup starting (GUI installer, no console)")
-	_ = runHidden("schtasks", "/End", "/TN", "NexusDeskAgent")
-	_ = runHidden("schtasks", "/Delete", "/TN", "NexusDeskAgent", "/F")
 	stopNexusdeskNode()
 	time.Sleep(1200 * time.Millisecond)
 
@@ -228,18 +226,9 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		return err
 	}
 
-	user := os.Getenv("USERNAME")
-	if user == "" {
-		user = os.Getenv("USER")
-	}
-	_ = runHidden(
-		"schtasks", "/Create", "/TN", "NexusDeskAgent",
-		"/TR", `"`+wrapper+`"`,
-		"/SC", "ONLOGON",
-		"/RL", "HIGHEST",
-		"/F",
-		"/RU", user,
-	)
+	// Do not create a Windows scheduled task here — antivirus products often flag
+	// `schtasks /Create` as suspicious and block the installer mid-setup.
+	// Start the agent for this session only (run-agent.cmd remains for manual relaunch).
 
 	progress(86, "Starting...")
 	logf("Starting agent")

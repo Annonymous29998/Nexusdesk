@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Select } from '@nexusdesk/ui';
+import { Input, Select, useToast } from '@nexusdesk/ui';
 import { DevicePlatform, DeviceStatus, type Device } from '@nexusdesk/types';
 import { DeviceCard } from '@/components/devices/DeviceCard';
 import { EmptyState, LoadingBlock, PageHeader } from '@/components/common/ui';
@@ -9,6 +9,7 @@ import { useStartSession } from '@/hooks/useSessions';
 
 export function DevicesPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [platform, setPlatform] = useState('');
@@ -26,6 +27,12 @@ export function DevicesPage() {
     try {
       const session = await startSession.mutateAsync({ deviceId: device.id });
       navigate(`/viewer/${session.id}`);
+    } catch (err) {
+      toast({
+        title: 'Could not connect',
+        description: err instanceof Error ? err.message : 'Session start failed. Check the agent is running on the PC.',
+        variant: 'destructive',
+      });
     } finally {
       setConnectingId(null);
     }
