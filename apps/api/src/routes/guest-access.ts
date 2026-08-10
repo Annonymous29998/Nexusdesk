@@ -19,10 +19,12 @@ function resolveAgentPackagePath(): string {
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(here, '../../../../agent/release/agent-windows.zip'),
+    // dist/routes → apps/agent/release
+    path.resolve(here, '../../../agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), '../agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), 'apps/agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), 'release/agent-windows.zip'),
+    path.resolve(process.cwd(), 'assets/agent-windows.zip'),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
