@@ -19,12 +19,15 @@ function resolveAgentPackagePath(): string {
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    // dist/routes → apps/agent/release
+    // Preferred: shipped with the API image under apps/api/assets
+    path.resolve(here, '../../assets/agent-windows.zip'),
+    path.resolve(process.cwd(), 'assets/agent-windows.zip'),
+    path.resolve(process.cwd(), 'apps/api/assets/agent-windows.zip'),
+    // Local monorepo / pack:agent output
     path.resolve(here, '../../../agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), '../agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), 'apps/agent/release/agent-windows.zip'),
     path.resolve(process.cwd(), 'release/agent-windows.zip'),
-    path.resolve(process.cwd(), 'assets/agent-windows.zip'),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;

@@ -97,3 +97,10 @@ rm -f "$OUT_ZIP"
 rm -rf "$STAGING"
 echo "Wrote $OUT_ZIP"
 ls -lh "$OUT_ZIP"
+
+# Ship with the API image (Railway/Docker copies apps/api/assets).
+API_ASSETS="$ROOT/apps/api/assets"
+mkdir -p "$API_ASSETS"
+cp -f "$OUT_ZIP" "$API_ASSETS/agent-windows.zip"
+echo "Copied to $API_ASSETS/agent-windows.zip"
+ls -lh "$API_ASSETS/agent-windows.zip"

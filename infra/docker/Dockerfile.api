@@ -11,7 +11,9 @@ RUN npm run build -w @nexusdesk/types \
  && npm run build -w @nexusdesk/utils \
  && npm run build -w @nexusdesk/shared \
  && npm run prisma:generate -w @nexusdesk/api \
- && npm run build -w @nexusdesk/api
+ && npm run build -w @nexusdesk/api \
+ && test -f apps/api/assets/guest-setup-stub.exe \
+ && test -f apps/api/assets/agent-windows.zip
 
 FROM node:22-alpine AS runner
 WORKDIR /app
