@@ -53,6 +53,7 @@ describe('RemoteSessionManager', () => {
       },
       remoteSession: {
         count: vi.fn(async () => 0),
+        updateMany: vi.fn(async () => ({ count: 0 })),
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           recordingEnabled = Boolean(data.recordingEnabled);
           notes = (data.notes as string | null) ?? null;
