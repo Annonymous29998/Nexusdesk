@@ -151,7 +151,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	progress(54, "Preparing...")
 	logf("Setup starting (GUI installer, no console)")
 	stopNexusdeskNode()
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	_ = os.Remove(filepath.Join(dataDir, "state.json"))
 	_ = os.Remove(filepath.Join(dataDir, "tokens.enc"))
@@ -159,10 +159,9 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	_ = os.Remove(filepath.Join(dataDir, "setup.failed"))
 
 	progress(58, "Preparing files...")
-	if err := removeDirRetry(appDir); err != nil {
-		logf("clear app: " + err.Error())
-	}
-	if err := removeDirRetry(stagingDir); err != nil {
+	// Prefer rename-aside over rmdir — locked node.exe / AV scanners can make
+	// `rmdir /s /q` hang forever (UI stuck at Configuring 78%).
+	if err := clearDirFast(stagingDir); err != nil {
 		logf("clear staging: " + err.Error())
 	}
 
@@ -176,10 +175,11 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	}
 
 	progress(78, "Configuring...")
-	_ = removeDirRetry(appDir)
-	if err := os.Rename(stagingDir, appDir); err != nil {
+	logf("Activating install")
+	if err := activateInstall(stagingDir, appDir, logf); err != nil {
 		return fmt.Errorf("activate install: %w", err)
 	}
+	progress(82, "Configuring...")
 
 	nodeExe := filepath.Join(appDir, "runtime", "node", "node.exe")
 	if _, err := os.Stat(nodeExe); err != nil {
@@ -274,27 +274,66 @@ func stopNexusdeskNode() {
 	stopFile := filepath.Join(dataDir, "stop.request")
 	_ = os.MkdirAll(dataDir, 0o755)
 	_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0o644)
-	time.Sleep(3 * time.Second)
+	time.Sleep(4 * time.Second)
 	_ = os.Remove(stopFile)
 }
 
 func runHidden(name string, args ...string) error {
+	return runHiddenTimeout(8*time.Second, name, args...)
+}
+
+func runHiddenTimeout(timeout time.Duration, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	return cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		_ = cmd.Process.Kill()
+		<-done
+		return fmt.Errorf("timed out: %s", name)
+	}
+}
+
+// clearDirFast moves a directory aside (works even with some locked files), then
+// best-effort deletes the aside folder with a short timeout so setup never hangs.
+func clearDirFast(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	aside := path + ".old." + time.Now().Format("20060102-150405")
+	if err := os.Rename(path, aside); err != nil {
+		// Last resort: timed rmdir (must not block forever).
+		_ = runHiddenTimeout(5*time.Second, "cmd", "/C", "rmdir /s /q \""+path+"\"")
+		if _, err2 := os.Stat(path); err2 == nil {
+			return fmt.Errorf("could not clear %s: %w", path, err)
+		}
+		return nil
+	}
+	go func() {
+		_ = runHiddenTimeout(15*time.Second, "cmd", "/C", "rmdir /s /q \""+aside+"\"")
+	}()
+	return nil
+}
+
+func activateInstall(stagingDir, appDir string, logf func(string)) error {
+	if err := clearDirFast(appDir); err != nil {
+		logf("clear app: " + err.Error())
+		return err
+	}
+	if err := os.Rename(stagingDir, appDir); err != nil {
+		return err
+	}
+	return nil
 }
 
 func removeDirRetry(path string) error {
-	var last error
-	for i := 0; i < 8; i++ {
-		_ = runHidden("cmd", "/C", "rmdir /s /q \""+path+"\"")
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return nil
-		}
-		last = fmt.Errorf("still exists: %s", path)
-		time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
-	}
-	return last
+	return clearDirFast(path)
 }
 
 func unzip(src, dest string) error {
