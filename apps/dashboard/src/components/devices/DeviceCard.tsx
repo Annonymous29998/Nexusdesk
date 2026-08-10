@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Play } from 'lucide-react';
+import { Play, Trash2 } from 'lucide-react';
 import { Button } from '@nexusdesk/ui';
 import { DevicePlatform, DeviceStatus, type Device } from '@nexusdesk/types';
 import { DeviceStatusBadge } from '@/components/common/ui';
@@ -21,11 +21,15 @@ function platformLabel(platform: DevicePlatform) {
 export function DeviceCard({
   device,
   onConnect,
+  onDelete,
   connecting,
+  deleting,
 }: {
   device: Device;
   onConnect?: (device: Device) => void;
+  onDelete?: (device: Device) => void;
   connecting?: boolean;
+  deleting?: boolean;
 }) {
   const canConnect = device.status === DeviceStatus.Online;
 
@@ -70,7 +74,7 @@ export function DeviceCard({
         <Button
           size="sm"
           className="h-8 rounded-none font-mono text-xs"
-          disabled={!canConnect}
+          disabled={!canConnect || deleting}
           loading={connecting}
           onClick={() => onConnect?.(device)}
         >
@@ -83,6 +87,18 @@ export function DeviceCard({
         >
           details
         </Link>
+        {onDelete ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-8 rounded-none font-mono text-xs text-destructive hover:border-destructive hover:text-destructive"
+            disabled={deleting}
+            onClick={() => onDelete(device)}
+          >
+            <Trash2 className="h-3 w-3" />
+            delete
+          </Button>
+        ) : null}
       </div>
     </article>
   );

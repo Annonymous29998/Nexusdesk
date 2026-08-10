@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Button } from '@nexusdesk/ui';
+import { Button, Modal, ModalBody, useToast } from '@nexusdesk/ui';
 import { DeviceStatus } from '@nexusdesk/types';
 import { DeviceStatusBadge, LoadingBlock, PageHeader, StatCard } from '@/components/common/ui';
-import { useDevice } from '@/hooks/useDevices';
+import { useDeleteDevice, useDevice } from '@/hooks/useDevices';
 import { useSessions, useStartSession } from '@/hooks/useSessions';
 import { SessionRow } from '@/components/sessions/SessionRow';
 import { DataTable } from '@/components/common/ui';
@@ -11,12 +12,33 @@ import { formatDate, formatRelative } from '@/lib/utils';
 export function DeviceDetailPage() {
   const { deviceId } = useParams<{ deviceId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const { data: device, isLoading } = useDevice(deviceId);
   const sessions = useSessions({ deviceId });
   const startSession = useStartSession();
+  const deleteDevice = useDeleteDevice();
 
   if (isLoading) return <LoadingBlock />;
   if (!device) return <p className="text-sm text-muted-foreground">Device not found.</p>;
+
+  const onConfirmDelete = async () => {
+    try {
+      await deleteDevice.mutateAsync(device.id);
+      toast({
+        title: 'Device deleted',
+        description: `${device.name} was removed from your organization.`,
+        variant: 'success',
+      });
+      navigate('/devices');
+    } catch (err) {
+      toast({
+        title: 'Could not delete device',
+        description: err instanceof Error ? err.message : 'Delete failed. Try again.',
+        variant: 'error',
+      });
+    }
+  };
 
   return (
     <div>
@@ -29,7 +51,14 @@ export function DeviceDetailPage() {
               Back
             </Button>
             <Button
-              disabled={device.status !== DeviceStatus.Online}
+              variant="destructive"
+              disabled={deleteDevice.isPending}
+              onClick={() => setConfirmDelete(true)}
+            >
+              Delete
+            </Button>
+            <Button
+              disabled={device.status !== DeviceStatus.Online || deleteDevice.isPending}
               loading={startSession.isPending}
               onClick={() => {
                 void startSession.mutateAsync({ deviceId: device.id }).then((s) => {
@@ -87,6 +116,44 @@ export function DeviceDetailPage() {
           ))}
         </DataTable>
       </section>
+
+      <Modal
+        open={confirmDelete}
+        onClose={() => {
+          if (!deleteDevice.isPending) setConfirmDelete(false);
+        }}
+        title="Delete device"
+      >
+        <ModalBody>
+          <div className="space-y-4 font-mono text-sm">
+            <p className="text-muted-foreground">
+              Remove <span className="text-primary">{device.name}</span> (
+              <span className="text-foreground">{device.hostname}</span>) from this organization? You
+              can enroll it again later with a new support link.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-none font-mono"
+                disabled={deleteDevice.isPending}
+                onClick={() => setConfirmDelete(false)}
+              >
+                cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="rounded-none font-mono"
+                loading={deleteDevice.isPending}
+                onClick={() => void onConfirmDelete()}
+              >
+                delete
+              </Button>
+            </div>
+          </div>
+        </ModalBody>
+      </Modal>
     </div>
   );
 }

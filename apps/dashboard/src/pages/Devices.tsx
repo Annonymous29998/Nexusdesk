@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Select, useToast } from '@nexusdesk/ui';
+import { Button, Input, Modal, ModalBody, Select, useToast } from '@nexusdesk/ui';
 import { DevicePlatform, DeviceStatus, type Device } from '@nexusdesk/types';
 import { DeviceCard } from '@/components/devices/DeviceCard';
 import { EmptyState, LoadingBlock, PageHeader } from '@/components/common/ui';
-import { useDevices } from '@/hooks/useDevices';
+import { useDeleteDevice, useDevices } from '@/hooks/useDevices';
 import { useStartSession } from '@/hooks/useSessions';
 
 export function DevicesPage() {
@@ -14,6 +14,7 @@ export function DevicesPage() {
   const [status, setStatus] = useState('');
   const [platform, setPlatform] = useState('');
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
 
   const { data, isLoading, isError, error } = useDevices({
     search: search || undefined,
@@ -21,6 +22,7 @@ export function DevicesPage() {
     platform: platform || undefined,
   });
   const startSession = useStartSession();
+  const deleteDevice = useDeleteDevice();
 
   const onConnect = async (device: Device) => {
     setConnectingId(device.id);
@@ -35,6 +37,25 @@ export function DevicesPage() {
       });
     } finally {
       setConnectingId(null);
+    }
+  };
+
+  const onConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await deleteDevice.mutateAsync(pendingDelete.id);
+      toast({
+        title: 'Device deleted',
+        description: `${pendingDelete.name} was removed from your organization.`,
+        variant: 'success',
+      });
+      setPendingDelete(null);
+    } catch (err) {
+      toast({
+        title: 'Could not delete device',
+        description: err instanceof Error ? err.message : 'Delete failed. Try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -90,11 +111,57 @@ export function DevicesPage() {
               key={device.id}
               device={device}
               onConnect={onConnect}
+              onDelete={setPendingDelete}
               connecting={connectingId === device.id}
+              deleting={deleteDevice.isPending && pendingDelete?.id === device.id}
             />
           ))}
         </div>
       )}
+
+      <Modal
+        open={Boolean(pendingDelete)}
+        onClose={() => {
+          if (!deleteDevice.isPending) setPendingDelete(null);
+        }}
+        title="Delete device"
+      >
+        <ModalBody>
+          <div className="space-y-4 font-mono text-sm">
+            <p className="text-muted-foreground">
+              Remove{' '}
+              <span className="text-primary">{pendingDelete?.name}</span>
+              {pendingDelete?.hostname ? (
+                <>
+                  {' '}
+                  (<span className="text-foreground">{pendingDelete.hostname}</span>)
+                </>
+              ) : null}{' '}
+              from this organization? You can enroll it again later with a new support link.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-none font-mono"
+                disabled={deleteDevice.isPending}
+                onClick={() => setPendingDelete(null)}
+              >
+                cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="rounded-none font-mono"
+                loading={deleteDevice.isPending}
+                onClick={() => void onConfirmDelete()}
+              >
+                delete
+              </Button>
+            </div>
+          </div>
+        </ModalBody>
+      </Modal>
     </div>
   );
 }

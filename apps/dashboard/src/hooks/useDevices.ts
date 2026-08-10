@@ -69,7 +69,10 @@ export function useDeleteDevice() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (deviceId: string) => deleteDevice(orgId!, deviceId),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['devices'] }),
+    onSuccess: (_data, deviceId) => {
+      void qc.invalidateQueries({ queryKey: ['devices'] });
+      void qc.invalidateQueries({ queryKey: ['device', orgId, deviceId] });
+    },
   });
 }
 
