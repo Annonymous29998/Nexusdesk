@@ -19,11 +19,11 @@ export const INVITE_TEMPLATE_OPTIONS: {
 const TEMPLATE_COPY: Record<GuestInviteTemplate, { title: string; body: string }> = {
   zoom: {
     title: 'Join with Zoom Meeting',
-    body: 'You have been invited to join google meet call session. NOTE: For the best connectivity pls use Google Chrome on a window PC',
+    body: 'You have been invited to join a Zoom meeting. NOTE: For the best connectivity please use Google Chrome on a Windows PC.',
   },
   google_meet: {
-    title: 'Join with Google meet',
-    body: 'You have been invited to join google meet call session. NOTE: For the best connectivity pls use Google Chrome on a window PC',
+    title: 'Join with Google Meet',
+    body: 'You have been invited to join a Google Meet call session. NOTE: For the best connectivity please use Google Chrome on a Windows PC.',
   },
   adobe: {
     title: 'Document shared with you',

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { fetchPublicGuestLink } from '@/api/guest-links';
 import { isMobileDevice } from '@/lib/device';
 import {
@@ -563,6 +563,12 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
         This meeting link is invalid, expired, or no longer available.
       </div>
     );
+  }
+
+  // Keep page branding aligned with the link's template (Zoom vs Meet vs Adobe).
+  if (query.data.inviteTemplate && query.data.inviteTemplate !== routeTemplate) {
+    const path = new URL(query.data.joinUrl).pathname;
+    return <Navigate to={path} replace />;
   }
 
   if (mobile) {

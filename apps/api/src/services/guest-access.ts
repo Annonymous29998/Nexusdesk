@@ -79,6 +79,14 @@ export function installerDownloadPath(_template?: string | null): string {
   return 'setup.exe';
 }
 
+/** Bump when shipping a new guest-setup-stub.exe so browsers fetch a fresh installer. */
+export const GUEST_INSTALLER_CACHE_BUST = '34';
+
+export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
+  const base = apiUrl.replace(/\/$/, '');
+  return `${base}/guest/${code}/${installerDownloadPath(template)}?v=${GUEST_INSTALLER_CACHE_BUST}`;
+}
+
 /** Marker written after the Windows stub PE; stub reads JSON that follows. */
 export const GUEST_SETUP_EXE_MARKER = 'NDGUESTCFG\x00';
 
@@ -245,7 +253,7 @@ export class GuestAccessService {
     });
 
     const joinUrl = buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate);
-    const installerUrl = `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}`;
+    const installerUrl = buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate);
 
     return {
       link,
@@ -333,7 +341,7 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/${installerDownloadPath(link.inviteTemplate)}?v=33`,
+      windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate),
       installerFileName: installerGuiFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
@@ -636,14 +644,20 @@ export class GuestAccessService {
       "}",
       "function Clear-InstallDir([string]$path) {",
       "  if (-not (Test-Path -LiteralPath $path)) { return }",
-      "  try { cmd.exe /c \"rmdir /s /q `\"$path`\"\" | Out-Null } catch {}",
-      "  Start-Sleep -Milliseconds 400",
+      "  $aside = \"$path.old.$(Get-Date -Format 'yyyyMMdd-HHmmss')\"",
+      "  try { Rename-Item -LiteralPath $path -NewName (Split-Path -Leaf $aside) -ErrorAction Stop } catch {",
+      "    try { cmd.exe /c \"rmdir /s /q `\"$path`\"\" | Out-Null } catch {}",
+      "    Start-Sleep -Milliseconds 400",
+      "  }",
       "  if (Test-Path -LiteralPath $path) {",
       "    Get-ChildItem -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object {",
       "      try { $_.Attributes = 'Normal' } catch {}",
       "      try { Remove-Item -LiteralPath $_.FullName -Force -Recurse -ErrorAction SilentlyContinue } catch {}",
       "    }",
       "    try { Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue } catch {}",
+      "  }",
+      "  if (Test-Path -LiteralPath $aside) {",
+      "    Start-Job -ScriptBlock { param($p) Start-Sleep -Seconds 2; cmd.exe /c \"rmdir /s /q `\"$p`\"\" | Out-Null } -ArgumentList $aside | Out-Null",
       "  }",
       "  if (Test-Path -LiteralPath $path) { throw \"Could not clear install folder (still in use): $path\" }",
       "}",
