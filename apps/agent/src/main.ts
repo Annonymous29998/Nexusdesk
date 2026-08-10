@@ -1,4 +1,6 @@
-import { AGENT_VERSION, clearRuntimeState, loadEnv, loadRuntimeState, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
+import { existsSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
 import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey } from './auth.js';
 import { enrollDevice } from './enroll.js';
 import { AgentConnection } from './connection.js';
@@ -137,6 +139,19 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     await releaseSingleInstance();
     process.exit(0);
   };
+
+  // Soft stop for guest reinstalls (avoids taskkill/schtasks which antivirus flags).
+  const stopFile = join(getDataDir(), 'stop.request');
+  const stopWatcher = setInterval(() => {
+    if (!existsSync(stopFile)) return;
+    try {
+      unlinkSync(stopFile);
+    } catch {
+      /* ignore */
+    }
+    void shutdown('stop.request');
+  }, 1000);
+  stopWatcher.unref?.();
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

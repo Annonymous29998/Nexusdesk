@@ -269,10 +269,13 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 }
 
 func stopNexusdeskNode() {
-	// Best-effort: stop prior agent without opening a window.
-	_ = runHidden("taskkill", "/F", "/IM", "node.exe", "/FI", "WINDOWTITLE eq NexusDesk*")
-	// Also try stopping by image path via wmic (hidden).
-	_ = runHidden("cmd", "/C", `for /f "tokens=2 delims==" %A in ('wmic process where "name='node.exe' and CommandLine like '%%NexusDesk%%'" get ProcessId /value ^| find "="') do taskkill /F /PID %A`)
+	// Soft-stop: ask any running agent to exit cleanly (no taskkill/wmic/schtasks).
+	dataDir := filepath.Join(os.Getenv("ProgramData"), "NexusDesk", "Agent")
+	stopFile := filepath.Join(dataDir, "stop.request")
+	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0o644)
+	time.Sleep(3 * time.Second)
+	_ = os.Remove(stopFile)
 }
 
 func runHidden(name string, args ...string) error {
