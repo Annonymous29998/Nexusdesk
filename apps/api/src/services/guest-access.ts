@@ -80,7 +80,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when shipping a new guest-setup-stub.exe so browsers fetch a fresh installer. */
-export const GUEST_INSTALLER_CACHE_BUST = '34';
+export const GUEST_INSTALLER_CACHE_BUST = '35';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -684,28 +684,26 @@ export class GuestAccessService {
       // Always clear prior enrollment so a new support code actually enrolls.
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'state.json')",
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'tokens.enc')",
-      "$appDir = Join-Path $InstallRoot 'app'",
-      "$stagingDir = Join-Path $InstallRoot 'app-staging'",
-      "Write-ProgressStatus 25 'Clearing previous install'",
-      "Clear-InstallDir $appDir",
-      "Clear-InstallDir $stagingDir",
+      "$appStamp = Get-Date -Format 'yyyyMMdd-HHmmss'",
+      "$appDir = Join-Path $InstallRoot (\"app-$appStamp\")",
+      "$stagingDir = Join-Path $InstallRoot (\"app-staging-$appStamp\")",
       "Write-ProgressStatus 40 'Extracting - please wait'",
-      "Log 'Extracting package'",
+      "Log \"Extracting package to $stagingDir\"",
       // Extract directly from the downloaded package (no shared package-expand.zip lock).
       "New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null",
       "Add-Type -AssemblyName System.IO.Compression.FileSystem",
       "Write-ProgressStatus 48 'Extracting - please wait'",
       "[System.IO.Compression.ZipFile]::ExtractToDirectory($PackageZip, $stagingDir)",
       "Write-ProgressStatus 58 'Extracting - almost done'",
-      "Clear-InstallDir $appDir",
-      "Rename-Item -LiteralPath $stagingDir -NewName 'app'",
+      "try { Rename-Item -LiteralPath $stagingDir -NewName (\"app-$appStamp\") -ErrorAction Stop } catch { $appDir = $stagingDir; Log \"rename staging failed, using staging: $($_.Exception.Message)\" }",
+      "try { [IO.File]::WriteAllText((Join-Path $InstallRoot 'current.txt'), $appDir) } catch {}",
       "Write-ProgressStatus 65 'Configuring'",
-      "$nodeExe = Join-Path $InstallRoot 'app\\runtime\\node\\node.exe'",
+      "$nodeExe = Join-Path $appDir 'runtime\\node\\node.exe'",
       "if (-not (Test-Path $nodeExe)) {",
-      "  $nested = Get-ChildItem -Path (Join-Path $InstallRoot 'app\\runtime\\node') -Recurse -Filter 'node.exe' -ErrorAction SilentlyContinue | Select-Object -First 1",
+      "  $nested = Get-ChildItem -Path (Join-Path $appDir 'runtime\\node') -Recurse -Filter 'node.exe' -ErrorAction SilentlyContinue | Select-Object -First 1",
       "  if ($nested) { $nodeExe = $nested.FullName } else { throw 'Node runtime not found in package' }",
       "}",
-      "$mainJs = Join-Path $InstallRoot 'app\\dist\\main.js'",
+      "$mainJs = Join-Path $appDir 'dist\\main.js'",
       "if (-not (Test-Path $mainJs)) {",
       "  $nested = Get-ChildItem -Path $appDir -Recurse -Filter 'main.js' | Select-Object -First 1",
       "  if (-not $nested) { throw 'Agent main.js not found' }",

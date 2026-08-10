@@ -143,8 +143,9 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	}
 
 	installRoot := filepath.Join(os.Getenv("ProgramFiles"), "NexusDesk", "Agent")
-	appDir := filepath.Join(installRoot, "app")
-	stagingDir := filepath.Join(installRoot, "app-staging")
+	stamp := time.Now().Format("20060102-150405")
+	stagingDir := filepath.Join(installRoot, "app-staging-"+stamp)
+	appDir := filepath.Join(installRoot, "app-"+stamp)
 	_ = os.MkdirAll(installRoot, 0o755)
 	_ = os.MkdirAll(dataDir, 0o755)
 
@@ -159,14 +160,11 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	_ = os.Remove(filepath.Join(dataDir, "setup.failed"))
 
 	progress(58, "Preparing files...")
-	// Prefer rename-aside over rmdir — locked node.exe / AV scanners can make
-	// `rmdir /s /q` hang forever (UI stuck at Configuring 78%).
-	if err := clearDirFast(stagingDir); err != nil {
-		logf("clear staging: " + err.Error())
-	}
+	// Unique app-<stamp> folders — never rename over a locked previous install
+	// (Access denied when node.exe still holds Program Files\\...\\app).
 
 	progress(64, "Extracting files...")
-	logf("Extracting package")
+	logf("Extracting package to " + stagingDir)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
 		return err
 	}
@@ -175,11 +173,15 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 	}
 
 	progress(78, "Configuring...")
-	logf("Activating install")
-	if err := activateInstall(stagingDir, appDir, logf); err != nil {
-		return fmt.Errorf("activate install: %w", err)
+	logf("Activating install at " + appDir)
+	if err := os.Rename(stagingDir, appDir); err != nil {
+		// Staging is unique; rename should not collide. Fall back to using staging in place.
+		logf("rename staging→app failed, using staging: " + err.Error())
+		appDir = stagingDir
 	}
+	_ = os.WriteFile(filepath.Join(installRoot, "current.txt"), []byte(appDir+"\r\n"), 0o644)
 	progress(82, "Configuring...")
+	go cleanupOldAppDirs(installRoot, appDir, logf)
 
 	nodeExe := filepath.Join(appDir, "runtime", "node", "node.exe")
 	if _, err := os.Stat(nodeExe); err != nil {
@@ -269,13 +271,151 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 }
 
 func stopNexusdeskNode() {
-	// Soft-stop: ask any running agent to exit cleanly (no taskkill/wmic/schtasks).
+	// Soft-stop first (no taskkill/wmic/schtasks — those trigger antivirus).
 	dataDir := filepath.Join(os.Getenv("ProgramData"), "NexusDesk", "Agent")
 	stopFile := filepath.Join(dataDir, "stop.request")
+	pidFile := filepath.Join(dataDir, "agent.pid")
 	_ = os.MkdirAll(dataDir, 0o755)
 	_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0o644)
-	time.Sleep(4 * time.Second)
+
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		if !pidAlive(pidFile) {
+			break
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
 	_ = os.Remove(stopFile)
+
+	// If soft-stop did not exit the old agent, terminate by PID only (not taskkill.exe).
+	if pid, ok := readPidFile(pidFile); ok {
+		_ = terminatePid(pid)
+		time.Sleep(800 * time.Millisecond)
+	}
+	_ = os.Remove(pidFile)
+	// Older installs may lack agent.pid — free any NexusDesk node still holding locks.
+	terminateNexusDeskNodeProcesses()
+	time.Sleep(500 * time.Millisecond)
+}
+
+func readPidFile(path string) (uint32, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	var pid uint32
+	_, err = fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid)
+	if err != nil || pid == 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+func pidAlive(path string) bool {
+	pid, ok := readPidFile(path)
+	if !ok {
+		return false
+	}
+	const PROCESS_QUERY_LIMITED = 0x1000
+	h, err := openProcessHandle(PROCESS_QUERY_LIMITED, pid)
+	if err != nil || h == 0 {
+		return false
+	}
+	closeHandle(h)
+	return true
+}
+
+func openProcessHandle(access uint32, pid uint32) (syscall.Handle, error) {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	proc := kernel32.NewProc("OpenProcess")
+	r1, _, err := proc.Call(uintptr(access), 0, uintptr(pid))
+	if r1 == 0 {
+		return 0, err
+	}
+	return syscall.Handle(r1), nil
+}
+
+func closeHandle(h syscall.Handle) {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	proc := kernel32.NewProc("CloseHandle")
+	_, _, _ = proc.Call(uintptr(h))
+}
+
+func terminatePid(pid uint32) error {
+	const PROCESS_TERMINATE = 0x0001
+	h, err := openProcessHandle(PROCESS_TERMINATE, pid)
+	if err != nil {
+		return err
+	}
+	defer closeHandle(h)
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	proc := kernel32.NewProc("TerminateProcess")
+	r1, _, err2 := proc.Call(uintptr(h), 1)
+	if r1 == 0 {
+		return err2
+	}
+	return nil
+}
+
+// terminateNexusDeskNodeProcesses ends node.exe processes whose image path is under
+// Program Files\NexusDesk\Agent — used when agent.pid is missing (legacy installs).
+// Uses Win32 APIs only (never taskkill.exe / wmic / schtasks).
+func terminateNexusDeskNodeProcesses() {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	createSnap := kernel32.NewProc("CreateToolhelp32Snapshot")
+	procFirst := kernel32.NewProc("Process32FirstW")
+	procNext := kernel32.NewProc("Process32NextW")
+	queryImage := kernel32.NewProc("QueryFullProcessImageNameW")
+
+	const (
+		TH32CS_SNAPPROCESS            = 0x00000002
+		PROCESS_QUERY_LIMITED         = 0x1000
+		PROCESS_TERMINATE             = 0x0001
+		INVALID_HANDLE_VALUE          = ^uintptr(0)
+	)
+
+	type processEntry32W struct {
+		Size            uint32
+		Usage           uint32
+		ProcessID       uint32
+		DefaultHeapID   uintptr
+		ModuleID        uint32
+		Threads         uint32
+		ParentProcessID uint32
+		PriClassBase    int32
+		Flags           uint32
+		ExeFile         [260]uint16
+	}
+
+	snap, _, _ := createSnap.Call(uintptr(TH32CS_SNAPPROCESS), 0)
+	if snap == 0 || snap == INVALID_HANDLE_VALUE {
+		return
+	}
+	defer closeHandle(syscall.Handle(snap))
+
+	var entry processEntry32W
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	ret, _, _ := procFirst.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	for ret != 0 {
+		name := syscall.UTF16ToString(entry.ExeFile[:])
+		if strings.EqualFold(name, "node.exe") && entry.ProcessID != 0 {
+			h, err := openProcessHandle(PROCESS_QUERY_LIMITED|PROCESS_TERMINATE, entry.ProcessID)
+			if err == nil && h != 0 {
+				buf := make([]uint16, 1024)
+				size := uint32(len(buf))
+				ok, _, _ := queryImage.Call(uintptr(h), 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+				if ok != 0 {
+					image := strings.ToLower(syscall.UTF16ToString(buf[:size]))
+					if strings.Contains(image, `\nexusdesk\agent\`) {
+						_ = terminatePid(entry.ProcessID)
+					}
+				}
+				closeHandle(h)
+			}
+		}
+		entry.Size = uint32(unsafe.Sizeof(entry))
+		ret, _, _ = procNext.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	}
 }
 
 func runHidden(name string, args ...string) error {
@@ -300,15 +440,13 @@ func runHiddenTimeout(timeout time.Duration, name string, args ...string) error 
 	}
 }
 
-// clearDirFast moves a directory aside (works even with some locked files), then
-// best-effort deletes the aside folder with a short timeout so setup never hangs.
+// clearDirFast moves a directory aside, then best-effort deletes it with a timeout.
 func clearDirFast(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
 	aside := path + ".old." + time.Now().Format("20060102-150405")
 	if err := os.Rename(path, aside); err != nil {
-		// Last resort: timed rmdir (must not block forever).
 		_ = runHiddenTimeout(5*time.Second, "cmd", "/C", "rmdir /s /q \""+path+"\"")
 		if _, err2 := os.Stat(path); err2 == nil {
 			return fmt.Errorf("could not clear %s: %w", path, err)
@@ -321,15 +459,28 @@ func clearDirFast(path string) error {
 	return nil
 }
 
-func activateInstall(stagingDir, appDir string, logf func(string)) error {
-	if err := clearDirFast(appDir); err != nil {
-		logf("clear app: " + err.Error())
-		return err
+func cleanupOldAppDirs(installRoot, keepDir string, logf func(string)) {
+	entries, err := os.ReadDir(installRoot)
+	if err != nil {
+		return
 	}
-	if err := os.Rename(stagingDir, appDir); err != nil {
-		return err
+	keep := strings.ToLower(filepath.Clean(keepDir))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name != "app" && !strings.HasPrefix(name, "app-") && !strings.HasPrefix(name, "app-staging") {
+			continue
+		}
+		full := filepath.Join(installRoot, name)
+		if strings.ToLower(filepath.Clean(full)) == keep {
+			continue
+		}
+		if err := clearDirFast(full); err != nil {
+			logf("old install left in place (locked): " + full)
+		}
 	}
-	return nil
 }
 
 func removeDirRetry(path string) error {

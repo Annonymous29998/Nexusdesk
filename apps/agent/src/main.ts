@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
 import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey } from './auth.js';
@@ -13,12 +13,33 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('agent');
 
+function pidFilePath(): string {
+  return join(getDataDir(), 'agent.pid');
+}
+
+function writePidFile(): void {
+  try {
+    writeFileSync(pidFilePath(), String(process.pid), { mode: 0o644 });
+  } catch (err) {
+    log.warn({ err }, 'could not write agent.pid');
+  }
+}
+
+function clearPidFile(): void {
+  try {
+    unlinkSync(pidFilePath());
+  } catch {
+    /* ignore */
+  }
+}
+
 async function bootstrap(env: AgentEnv): Promise<void> {
   const soleOwner = await acquireSingleInstance();
   if (!soleOwner) {
     log.error('exiting — another NexusDesk agent is already running');
     process.exit(0);
   }
+  writePidFile();
 
   const key = resolveEncryptionKey(env.ENCRYPTION_KEY);
   const auth = new AgentAuthStore(env.ENCRYPTION_KEY);
@@ -136,6 +157,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     heartbeat.stop();
     streamer.stop();
     await connection.close();
+    clearPidFile();
     await releaseSingleInstance();
     process.exit(0);
   };
