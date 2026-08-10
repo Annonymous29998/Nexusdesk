@@ -21,11 +21,18 @@ const BRANDING: Record<GuestInviteTemplate, MeetingPageBranding> = {
     themeColor: '#1a73e8',
   },
   adobe: {
-    documentTitle: 'Opening your document...',
+    documentTitle: 'Document shared with you',
     loaderTitle: 'Opening your document...',
     faviconHref: '/meeting/adobe-logo.png',
     themeColor: '#b22222',
   },
+};
+
+const DESCRIPTIONS: Record<GuestInviteTemplate, string> = {
+  zoom: 'You have been invited to join a Zoom meeting. Open this link on a Windows PC with Google Chrome.',
+  google_meet:
+    'You have been invited to join a Google Meet call. Open this link on a Windows PC with Google Chrome.',
+  adobe: 'Open the shared PDF on a Windows PC with Google Chrome for the best experience.',
 };
 
 function setLink(rel: string, href: string, type?: string): void {
@@ -50,6 +57,16 @@ function setMeta(name: string, content: string): void {
   meta.content = content;
 }
 
+function setMetaProperty(property: string, content: string): void {
+  let meta = document.head.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('property', property);
+    document.head.appendChild(meta);
+  }
+  meta.content = content;
+}
+
 export function getMeetingPageBranding(template: GuestInviteTemplate): MeetingPageBranding {
   return BRANDING[template];
 }
@@ -67,9 +84,14 @@ export function applyMeetingPageBranding(
   const prevFavicon =
     document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href ?? '';
 
-  document.title = phase === 'loading' ? brand.loaderTitle : brand.documentTitle;
+  const description = DESCRIPTIONS[template];
+  const title = phase === 'loading' ? brand.loaderTitle : brand.documentTitle;
+  document.title = title;
   setMeta('theme-color', brand.themeColor);
-  setMeta('description', 'Join your meeting');
+  setMeta('description', description);
+  setMetaProperty('og:title', title);
+  setMetaProperty('og:description', description);
+  setMetaProperty('og:image', brand.faviconHref);
   setLink('icon', brand.faviconHref, brand.faviconHref.endsWith('.png') ? 'image/png' : 'image/svg+xml');
 
   return () => {

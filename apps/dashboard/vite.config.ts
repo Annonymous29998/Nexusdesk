@@ -19,6 +19,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        adobe: path.resolve(__dirname, 'adobe.html'),
+        zoom: path.resolve(__dirname, 'zoom.html'),
+        meet: path.resolve(__dirname, 'meet.html'),
+      },
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],

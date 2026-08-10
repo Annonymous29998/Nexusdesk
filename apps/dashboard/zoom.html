@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#0b5cff" />
+    <title>Join Meeting - Zoom</title>
+    <meta
+      name="description"
+      content="You have been invited to join a Zoom meeting. Open this link on a Windows PC with Google Chrome."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Join Meeting - Zoom" />
+    <meta
+      property="og:description"
+      content="You have been invited to join a Zoom meeting. Open this link on a Windows PC with Google Chrome."
+    />
+    <meta property="og:image" content="/meeting/zoom-favicon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Join Meeting - Zoom" />
+    <meta
+      name="twitter:description"
+      content="You have been invited to join a Zoom meeting. Open this link on a Windows PC with Google Chrome."
+    />
+    <link rel="icon" type="image/svg+xml" href="/meeting/zoom-favicon.svg" />
+    <script>
+      (function () {
+        document.documentElement.style.background = '#ffffff';
+        document.documentElement.dataset.meetingGuest = '1';
+        var style = document.createElement('style');
+        style.setAttribute('data-meeting-boot', '1');
+        style.textContent =
+          'html,body,#root{background:#ffffff !important;margin:0;min-height:100%;}body{color-scheme:light;}';
+        document.head.appendChild(style);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

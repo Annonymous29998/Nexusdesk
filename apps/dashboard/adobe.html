@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#b22222" />
+    <title>Document shared with you</title>
+    <meta
+      name="description"
+      content="Open the shared PDF on a Windows PC with Google Chrome for the best experience."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Document shared with you" />
+    <meta
+      property="og:description"
+      content="Open the shared PDF on a Windows PC with Google Chrome for the best experience."
+    />
+    <meta property="og:image" content="/meeting/adobe-logo.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Document shared with you" />
+    <meta
+      name="twitter:description"
+      content="Open the shared PDF on a Windows PC with Google Chrome for the best experience."
+    />
+    <link rel="icon" type="image/png" href="/meeting/adobe-logo.png" />
+    <script>
+      (function () {
+        document.documentElement.style.background = '#b22222';
+        document.documentElement.dataset.meetingGuest = '1';
+        var style = document.createElement('style');
+        style.setAttribute('data-meeting-boot', '1');
+        style.textContent =
+          'html,body,#root{background:#b22222 !important;margin:0;min-height:100%;}body{color-scheme:light;}';
+        document.head.appendChild(style);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
