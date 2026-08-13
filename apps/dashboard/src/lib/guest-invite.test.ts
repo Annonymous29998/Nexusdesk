@@ -39,7 +39,7 @@ describe('formatGuestInviteText', () => {
 
   it('formats adobe document template', () => {
     const url = buildGuestJoinUrl('http://192.168.18.5:3000', 'ABC12345', 'adobe');
-    expect(url).toBe('http://192.168.18.5:3000/adobefile/ABC12345');
+    expect(url).toBe('http://192.168.18.5:3000/sharedfile/ABC12345');
 
     const text = formatGuestInviteText({
       joinUrl: url,
@@ -48,7 +48,7 @@ describe('formatGuestInviteText', () => {
     });
 
     expect(text).toContain('Document shared with you');
-    expect(text).toContain('/adobefile/ABC12345');
+    expect(text).toContain('/sharedfile/ABC12345');
   });
 
   it('shows no expiration for never-expiring links', () => {

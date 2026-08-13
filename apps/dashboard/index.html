@@ -15,7 +15,7 @@
         var path = location.pathname || '';
         var bg = null;
         var scheme = null;
-        if (path.indexOf('/adobefile/') === 0) {
+        if (path.indexOf('/sharedfile/') === 0 || path.indexOf('/adobefile/') === 0) {
           bg = '#b22222';
           scheme = 'light';
         } else if (path.indexOf('/joinzoom/') === 0) {

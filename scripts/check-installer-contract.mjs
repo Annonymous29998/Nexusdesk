@@ -136,7 +136,7 @@ async function main() {
       inviteTemplate === 'google_meet'
         ? `/gotme/GoogleMeet/${code}`
         : inviteTemplate === 'adobe'
-          ? `/adobefile/${code}`
+          ? `/sharedfile/${code}`
           : `/joinzoom/${code}`;
     const joinStatus = (await fetch(`${APP}${joinPath}`)).status;
     if (joinStatus === 200) pass(`${inviteTemplate} join page`);
