@@ -44,6 +44,7 @@ services:
       - miniodata:/data
 
   api:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.api
@@ -89,6 +90,7 @@ services:
       - "4002:4002"
 
   dashboard:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.dashboard
@@ -100,6 +102,7 @@ services:
       - api
 
   nginx:
+    restart: unless-stopped
     image: nginx:1.27-alpine
     volumes:
       - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
