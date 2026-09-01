@@ -238,7 +238,9 @@ export function ViewerPage() {
               {status === 'offline'
                 ? detail ??
                   'The agent is not connected. Make sure the support app is running on the remote PC.'
-                : detail ?? 'Waiting for the first frame from the remote agent.'}
+                : detail?.startsWith('capture:')
+                  ? detail.replace(/^capture:\s*/, 'Screen capture failed: ')
+                  : detail ?? 'Waiting for the first frame from the remote agent.'}
             </p>
           </div>
         )}

@@ -107,6 +107,12 @@ async function captureViaPowerShell(): Promise<RawFrame | null> {
 }
 
 export async function captureScreenFrame(): Promise<RawFrame> {
+  // PowerShell GDI is more reliable than screenshot-desktop on Windows Server / RDP.
+  if (process.platform === 'win32') {
+    const psFrame = await captureViaPowerShell();
+    if (psFrame) return psFrame;
+  }
+
   try {
     const screenshot = await import('screenshot-desktop').then((m) => m.default).catch(() => null);
     if (screenshot) {
@@ -132,7 +138,6 @@ export async function captureScreenFrame(): Promise<RawFrame> {
   }
 
   log.warn({ err: lastCaptureError }, 'screen capture unavailable');
-  // Tiny valid 1x1 JPEG so callers that require jpeg format can still detect failure via size.
   const size = await primaryDisplaySize();
   return {
     width: size.width,

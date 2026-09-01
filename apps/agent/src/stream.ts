@@ -35,12 +35,16 @@ export class Streamer {
 
   start(sessionId: string): void {
     this.sessions.add(sessionId);
-    if (this.timer) return;
+    if (this.timer) {
+      void this.tick();
+      return;
+    }
     const intervalMs = Math.max(50, Math.floor(1000 / Math.max(1, this.opts.fps)));
     log.info({ intervalMs, sessionId }, 'starting screen stream');
     this.timer = setInterval(() => {
       void this.tick();
     }, intervalMs);
+    void this.tick();
   }
 
   stop(sessionId?: string): void {
