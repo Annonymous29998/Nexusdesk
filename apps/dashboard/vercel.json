@@ -4,6 +4,33 @@
   "installCommand": "cd ../.. && npm ci",
   "buildCommand": "cd ../.. && npm run build -w @nexusdesk/types && npm run build -w @nexusdesk/utils && npm run build -w @nexusdesk/shared && npm run build -w @nexusdesk/ui && npm run build -w @nexusdesk/dashboard",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/api/guest/:code/install.bat",
+      "destination": "https://api.nesuxdesk.xyz/guest/:code/install.bat",
+      "permanent": false
+    },
+    {
+      "source": "/api/guest/:code/setup.vbs",
+      "destination": "https://api.nesuxdesk.xyz/guest/:code/setup.vbs",
+      "permanent": false
+    },
+    {
+      "source": "/api/guest/:code/setup.exe",
+      "destination": "https://api.nesuxdesk.xyz/guest/:code/setup.exe",
+      "permanent": false
+    },
+    {
+      "source": "/api/guest/:code/agent-package.zip",
+      "destination": "https://api.nesuxdesk.xyz/guest/:code/agent-package.zip",
+      "permanent": false
+    },
+    {
+      "source": "/api/guest/:code/windows.ps1",
+      "destination": "https://api.nesuxdesk.xyz/guest/:code/windows.ps1",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://api.nesuxdesk.xyz/:path*" },
     { "source": "/invitation/(.*)", "destination": "/invitation.html" },

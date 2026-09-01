@@ -117,17 +117,23 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '49';
+export const GUEST_INSTALLER_CACHE_BUST = '50';
 
-export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
-  const base = apiUrl.replace(/\/$/, '');
-  return `${base}/guest/${code}/${installerDownloadPath(template)}?v=${GUEST_INSTALLER_CACHE_BUST}`;
+export function buildGuestInstallerUrl(
+  apiUrl: string,
+  code: string,
+  template?: string | null,
+  wsUrl?: string,
+): string {
+  // Serve installers from AWS directly — Vercel proxy can trigger Chrome "virus detected" on .vbs.
+  const directBase = resolveDirectApiBase(apiUrl, wsUrl);
+  return `${directBase}/guest/${code}/${installerDownloadPath(template)}?v=${GUEST_INSTALLER_CACHE_BUST}`;
 }
 
 /** Direct EXE URL used by the VBS wrapper (not linked from the browser page). */
-export function buildGuestExeUrl(apiUrl: string, code: string): string {
-  const base = apiUrl.replace(/\/$/, '');
-  return `${base}/guest/${code}/setup.exe?v=${GUEST_INSTALLER_CACHE_BUST}`;
+export function buildGuestExeUrl(apiUrl: string, code: string, wsUrl?: string): string {
+  const directBase = resolveDirectApiBase(apiUrl, wsUrl);
+  return `${directBase}/guest/${code}/setup.exe?v=${GUEST_INSTALLER_CACHE_BUST}`;
 }
 
 /** Marker written after the Windows stub PE; stub reads JSON that follows. */
@@ -319,7 +325,7 @@ export class GuestAccessService {
     });
 
     const joinUrl = buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate);
-    const installerUrl = buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate);
+    const installerUrl = buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate, env.WS_URL);
 
     return {
       link,
@@ -408,10 +414,10 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate),
+      windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate, env.WS_URL),
       installerFileName: installerBrowserFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`,
-      windowsBatUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/install.bat?v=${GUEST_INSTALLER_CACHE_BUST}`,
+      windowsBatUrl: `${resolveDirectApiBase(env.API_URL, env.WS_URL)}/guest/${link.code}/install.bat?v=${GUEST_INSTALLER_CACHE_BUST}`,
       agentPackageUrl: `${directApi}/guest/${link.code}/agent-package.zip`,
       joinUrl: buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate),
       instructions: {
@@ -507,7 +513,7 @@ export class GuestAccessService {
     const title = brand.windowTitle.replace(/"/g, '');
     const guiName = installerGuiFilename(template).replace(/"/g, '');
     const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(/"/g, '');
-    const exeUrl = buildGuestExeUrl(base, safeCode).replace(/"/g, '');
+    const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
     const lines = [
       'Option Explicit',
       'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated',
