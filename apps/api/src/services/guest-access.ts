@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '36';
+export const GUEST_INSTALLER_CACHE_BUST = '37';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -488,6 +488,10 @@ export class GuestAccessService {
       'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
       `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
       'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
+      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${exeUrl}' -OutFile '" & setupExe & "' -UseBasicParsing"""`,
+      '  rc = sh.Run(psCmd, 0, True)',
+      'End If',
       'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
       `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
       '  WScript.Quit 1',

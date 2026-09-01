@@ -2,6 +2,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
+COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY services/relay ./services/relay
 RUN npm install --workspace=@nexusdesk/relay --include-workspace-root \
