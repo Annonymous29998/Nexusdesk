@@ -379,6 +379,21 @@ body.meeting-guest-page #root {
   color: #9aa0a6;
 }
 
+.meeting-desktop__alt-installer {
+  margin: 1rem 0 0;
+  max-width: 420px;
+  font-size: 0.8125rem;
+}
+
+.meeting-desktop__alt-installer a {
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.meeting-zoom-desktop .meeting-desktop__alt-installer a {
+  color: #0b5cff;
+}
+
 /* ── Google Meet desktop ── */
 .meeting-meet-desktop {
   min-height: 100vh;

