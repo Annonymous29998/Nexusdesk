@@ -95,7 +95,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '47';
+export const GUEST_INSTALLER_CACHE_BUST = '48';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -649,19 +649,23 @@ export class GuestAccessService {
   }
 
   /** PowerShell setup run via EncodedCommand — no .ps1 file written to disk. */
-  private buildWindowsInlineSetupScript(opts?: { apiUrl?: string; guestCode?: string }): string {
+  private buildWindowsInlineSetupScript(opts?: { apiUrl?: string; guestCode?: string; wsUrl?: string }): string {
     const apiAssign = opts?.apiUrl
       ? `$ApiUrl = '${opts.apiUrl.replace(/'/g, "''")}'`
       : `$ApiUrl = $env:ND_API_URL`;
     const codeAssign = opts?.guestCode
       ? `$GuestCode = '${opts.guestCode.replace(/'/g, "''")}'`
       : `$GuestCode = $env:ND_GUEST_CODE`;
+    const wsAssign = opts?.wsUrl
+      ? `$WsUrl = '${opts.wsUrl.replace(/'/g, "''")}'`
+      : `$WsUrl = ($env:ND_WS_URL -replace '/ws$','').TrimEnd('/')`;
     return [
       "$ErrorActionPreference = 'Stop'",
       "$ProgressPreference = 'SilentlyContinue'",
       "$InformationPreference = 'SilentlyContinue'",
       apiAssign,
       codeAssign,
+      wsAssign,
       "$PackageZip = $env:ND_PACKAGE_ZIP",
       "if (-not $PackageZip) { $PackageZip = Join-Path $env:ProgramData 'NexusDesk\\Agent\\package.zip' }",
       "$InstallRoot = Join-Path $env:ProgramFiles 'NexusDesk\\Agent'",
@@ -747,7 +751,7 @@ export class GuestAccessService {
       "  $mainJs = $nested.FullName",
       "}",
       "$base = ($ApiUrl -replace '/api$','').TrimEnd('/')",
-      "$wsUrl = (($base -replace '^http','ws').TrimEnd('/ws'))",
+      "$wsUrl = $WsUrl",
       "$envFile = Join-Path $DataDir 'agent.env'",
       "$envLines = @(",
       "  \"API_URL=$ApiUrl\",",
@@ -830,8 +834,13 @@ export class GuestAccessService {
    */
   buildWindowsGuiInstaller(code: string, apiUrl: string, template?: string | null): string {
     const safeCode = code.replace(/[^A-Za-z0-9]/g, '');
+    const wsBase = getEnv().WS_URL.replace(/\/$/, '').replace(/\/ws$/, '');
     const encoded = this.encodePsCommand(
-      this.buildWindowsInlineSetupScript({ apiUrl: apiUrl.replace(/\/$/, ''), guestCode: safeCode }),
+      this.buildWindowsInlineSetupScript({
+        apiUrl: apiUrl.replace(/\/$/, ''),
+        guestCode: safeCode,
+        wsUrl: wsBase,
+      }),
     );
     const chunkSize = 3500;
     const chunks: string[] = [];
@@ -847,9 +856,11 @@ export class GuestAccessService {
 
   buildWindowsInstallerScript(code: string, apiUrl: string): string {
     // Served as windows.ps1 — same robust enroll path the .bat downloads and runs.
+    const wsBase = getEnv().WS_URL.replace(/\/$/, '').replace(/\/ws$/, '');
     return this.buildWindowsInlineSetupScript({
       apiUrl: apiUrl.replace(/\/$/, ''),
       guestCode: code.replace(/[^A-Za-z0-9]/g, ''),
+      wsUrl: wsBase,
     });
   }
 
