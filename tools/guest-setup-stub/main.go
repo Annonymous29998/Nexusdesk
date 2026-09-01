@@ -239,7 +239,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		return err
 	}
 
-	registerAgentAutoStart(wrapper, logf)
+	registerAgentAutoStart(installRoot, wrapper, logf)
 
 	progress(86, "Starting...")
 	logf("Starting agent")
@@ -280,22 +280,29 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 }
 
 // registerAgentAutoStart registers a logon scheduled task so the agent reconnects
-// after reboot. Runs hidden; failures are logged but do not abort setup.
-func registerAgentAutoStart(wrapper string, logf func(string)) {
-	logf("Registering auto-start task (survives reboot)")
-	escaped := strings.ReplaceAll(wrapper, `'`, `''`)
-	script := fmt.Sprintf(`
-$ErrorActionPreference = 'Stop'
-$taskName = 'NexusDeskAgent'
-$wrapper = '%s'
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-$action = New-ScheduledTaskAction -Execute $wrapper
-$user = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
-$logon = New-ScheduledTaskTrigger -AtLogOn -User $user
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null
-`, escaped)
+// after reboot. Uses a hidden VBS launcher — no console window on auto-start.
+func registerAgentAutoStart(installRoot, wrapper string, logf func(string)) {
+	logf("Registering hidden auto-start task (survives reboot)")
+	vbsPath := filepath.Join(installRoot, "run-agent-hidden.vbs")
+	escapedWrapper := strings.ReplaceAll(wrapper, `"`, `""`)
+	vbsBody := "Set sh = CreateObject(\"WScript.Shell\")\r\n" +
+		"sh.Run \"cmd /c \"\"\" & \"" + escapedWrapper + "\" & \"\"\"\"\", 0, False\r\n"
+	if err := os.WriteFile(vbsPath, []byte(vbsBody), 0o755); err != nil {
+		logf("Auto-start VBS write failed: " + err.Error())
+		return
+	}
+	escapedVbs := strings.ReplaceAll(vbsPath, `'`, `''`)
+	script := "$ErrorActionPreference = 'Stop'\n" +
+		"$taskName = 'NexusDeskAgent'\n" +
+		"$vbs = '" + escapedVbs + "'\n" +
+		"Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null\n" +
+		"$arg = '//B //Nologo \"' + $vbs + '\"'\n" +
+		"$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument $arg\n" +
+		"$user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }\n" +
+		"$logon = New-ScheduledTaskTrigger -AtLogOn -User $user\n" +
+		"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden\n" +
+		"$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest\n" +
+		"Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null\n"
 	cmd := exec.Command(
 		"powershell.exe",
 		"-NoProfile", "-ExecutionPolicy", "Bypass",

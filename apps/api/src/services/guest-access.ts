@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '40';
+export const GUEST_INSTALLER_CACHE_BUST = '41';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -732,13 +732,16 @@ export class GuestAccessService {
       "$wrapper = Join-Path $InstallRoot 'run-agent.cmd'",
       "$wrapperBody = \"@echo off`r`nsetlocal`r`nfor /f `\"usebackq tokens=1,* delims==`\" %%A in (`\"$envFile`\") do set `\"%%A=%%B`\"`r`n`\"$nodeExe`\" `\"$mainJs`\" >> `\"$LogFile`\" 2>&1`r`n\"",
       "[IO.File]::WriteAllText($wrapper, $wrapperBody)",
+      "$hiddenVbs = Join-Path $InstallRoot 'run-agent-hidden.vbs'",
+      "$vbsBody = \"Set sh = CreateObject(\"\"WScript.Shell\"\")`r`nsh.Run \"\"\"\"cmd /c `\"\"\"\" & `\"\"$wrapper`\"\" & `\"\"`\"\"`\"\"\"\", 0, False`r`n\"",
+      "[IO.File]::WriteAllText($hiddenVbs, $vbsBody)",
       "$taskName = 'NexusDeskAgent'",
       "try {",
       "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null",
-      "  $action = New-ScheduledTaskAction -Execute $wrapper",
+      "  $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument (\"//B //Nologo `\"\"$hiddenVbs`\"\"\")",
       "  $user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }",
       "  $logon = New-ScheduledTaskTrigger -AtLogOn -User $user",
-      "  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)",
+      "  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden",
       "  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest",
       "  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null",
       "  Log 'Auto-start task registered (survives reboot)'",

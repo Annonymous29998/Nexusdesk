@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<StreamStatus, string> = {
   streaming: 'live',
   offline: 'device offline',
   disconnected: 'disconnected',
+  reconnecting: 'reconnecting',
   error: 'error',
 };
 
@@ -227,7 +228,11 @@ export function ViewerPage() {
           <div className="flex max-w-md flex-col items-center justify-center gap-3 text-center">
             <div className="h-16 w-16 animate-pulse-soft rounded-2xl border border-teal-400/30 bg-teal-400/10" />
             <p className="font-display text-xl font-semibold">
-              {status === 'offline' ? 'Device is offline' : 'Connecting to remote screen…'}
+              {status === 'offline'
+                ? 'Device is offline'
+                : status === 'reconnecting'
+                  ? 'Reconnecting…'
+                  : 'Connecting to remote screen…'}
             </p>
             <p className="text-sm text-slate-400">
               {status === 'offline'

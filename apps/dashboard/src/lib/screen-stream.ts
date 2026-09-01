@@ -9,6 +9,7 @@ export type StreamStatus =
   | 'waiting'
   | 'streaming'
   | 'offline'
+  | 'reconnecting'
   | 'disconnected'
   | 'error';
 
@@ -39,12 +40,18 @@ export class ScreenStreamClient {
   private reconnectAttempts = 0;
   private startRetries = 0;
   private startRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   private lastCaptureError: string | null = null;
 
   constructor(private readonly options: ScreenStreamOptions) {}
 
   connect(): void {
     this.closed = false;
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
     this.options.onStatus?.('connecting');
     const token = getAccessToken();
     if (!token) {
@@ -63,6 +70,7 @@ export class ScreenStreamClient {
     this.ws.onopen = () => {
       this.options.onStatus?.('authenticating');
       this.send({ event: WS_EVENTS.auth, data: { kind: 'user', token } });
+      this.startPing();
     };
 
     this.ws.onmessage = (event) => {
@@ -126,13 +134,30 @@ export class ScreenStreamClient {
     };
 
     this.ws.onclose = () => {
+      this.stopPing();
       if (this.closed) return;
-      this.options.onStatus?.('disconnected');
-      if (this.reconnectAttempts < 5) {
+      this.options.onStatus?.('reconnecting', 'restoring connection…');
+      if (this.reconnectAttempts < 8) {
         this.reconnectAttempts += 1;
-        setTimeout(() => this.connect(), 1000 * this.reconnectAttempts);
+        setTimeout(() => this.connect(), 1000 * Math.min(this.reconnectAttempts, 4));
+      } else {
+        this.options.onStatus?.('disconnected', 'connection lost');
       }
     };
+  }
+
+  private startPing(): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      this.send({ event: WS_EVENTS.ping, data: { t: Date.now() } });
+    }, 25_000);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   private requestStream(): void {
@@ -176,6 +201,7 @@ export class ScreenStreamClient {
 
   close(options?: { stopStream?: boolean }): void {
     this.closed = true;
+    this.stopPing();
     if (this.startRetryTimer) {
       clearTimeout(this.startRetryTimer);
       this.startRetryTimer = null;
