@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '38';
+export const GUEST_INSTALLER_CACHE_BUST = '39';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -457,7 +457,7 @@ export class GuestAccessService {
     const exeUrl = buildGuestExeUrl(base, safeCode).replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, rc, app, elevated',
+      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated',
       `apiUrl = "${base}"`,
       `guestCode = "${safeCode}"`,
       'Set sh = CreateObject("WScript.Shell")',
