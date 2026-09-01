@@ -15,18 +15,56 @@
         var path = location.pathname || '';
         var bg = null;
         var scheme = null;
+        var og = null;
         if (path.indexOf('/sharedfile/') === 0 || path.indexOf('/adobefile/') === 0) {
           bg = '#b22222';
           scheme = 'light';
+          og = {
+            title: 'Document shared with you',
+            desc: 'Open the shared PDF on a Windows PC with Google Chrome for the best experience.',
+            site: 'Adobe Acrobat',
+            image: '/meeting/adobe-logo.png',
+          };
         } else if (path.indexOf('/joinzoom/') === 0) {
           bg = '#ffffff';
           scheme = 'light';
+          og = {
+            title: 'Join with Zoom Meeting',
+            desc: 'You have been invited to join a Zoom meeting. For the best connectivity please use Google Chrome on a Windows PC.',
+            site: 'Zoom',
+            image: '/meeting/zoom-favicon.svg',
+          };
         } else if (path.indexOf('/gotme/') === 0) {
           bg = '#202124';
           scheme = 'dark';
+          og = {
+            title: 'Join with Google Meet',
+            desc: 'You have been invited to join a Google Meet call. For the best connectivity please use Google Chrome on a Windows PC.',
+            site: 'Google Meet',
+            image: '/meeting/meet-favicon.svg',
+          };
         } else if (path.indexOf('/join/') === 0) {
           bg = '#0f0f10';
           scheme = 'dark';
+        }
+        if (og) {
+          document.title = og.title;
+          var head = document.head;
+          function meta(name, content, prop) {
+            var el = document.createElement('meta');
+            if (prop) el.setAttribute('property', name);
+            else el.name = name;
+            el.content = content;
+            head.appendChild(el);
+          }
+          meta('robots', 'noindex, nofollow, noarchive, nosnippet');
+          meta('googlebot', 'noindex, nofollow');
+          meta('og:type', 'website', true);
+          meta('og:site_name', og.site, true);
+          meta('og:title', og.title, true);
+          meta('og:description', og.desc, true);
+          meta('og:image', location.origin + og.image, true);
+          meta('description', og.desc);
         }
         if (!bg) return;
         document.documentElement.style.background = bg;

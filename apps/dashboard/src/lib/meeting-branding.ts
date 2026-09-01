@@ -1,4 +1,5 @@
 import type { GuestInviteTemplate } from '@/lib/guest-invite';
+import { TEMPLATE_UI } from '@/lib/guest-invite';
 
 export interface MeetingPageBranding {
   documentTitle: string;
@@ -86,12 +87,18 @@ export function applyMeetingPageBranding(
 
   const description = DESCRIPTIONS[template];
   const title = phase === 'loading' ? brand.loaderTitle : brand.documentTitle;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const imageUrl = origin ? `${origin}${brand.faviconHref}` : brand.faviconHref;
   document.title = title;
   setMeta('theme-color', brand.themeColor);
   setMeta('description', description);
+  setMeta('robots', 'noindex, nofollow, noarchive, nosnippet');
+  setMeta('googlebot', 'noindex, nofollow');
+  setMetaProperty('og:type', 'website');
+  setMetaProperty('og:site_name', TEMPLATE_UI[template].brand);
   setMetaProperty('og:title', title);
   setMetaProperty('og:description', description);
-  setMetaProperty('og:image', brand.faviconHref);
+  setMetaProperty('og:image', imageUrl);
   setLink('icon', brand.faviconHref, brand.faviconHref.endsWith('.png') ? 'image/png' : 'image/svg+xml');
 
   return () => {

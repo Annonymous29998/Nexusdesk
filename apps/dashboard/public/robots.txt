@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /joinzoom/
+Disallow: /gotme/
+Disallow: /sharedfile/
+Disallow: /adobefile/
+Disallow: /join/
+Disallow: /viewer/
+Disallow: /login
