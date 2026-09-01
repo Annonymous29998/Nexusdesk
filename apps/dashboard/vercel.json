@@ -6,7 +6,6 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://api.nesuxdesk.xyz/:path*" },
-    { "source": "/ws", "destination": "https://api.nesuxdesk.xyz/ws" },
     { "source": "/invitation/(.*)", "destination": "/invitation.html" },
     { "source": "/sharedfile/(.*)", "destination": "/adobe.html" },
     { "source": "/adobefile/(.*)", "destination": "/adobe.html" },

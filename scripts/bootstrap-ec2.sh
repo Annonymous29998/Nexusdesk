@@ -45,7 +45,7 @@ LOG_LEVEL=info
 
 APP_URL=${APP_FRONTEND_URL}
 API_URL=${APP_FRONTEND_URL}/api
-WS_URL=${APP_FRONTEND_URL/https/wss}/ws
+WS_URL=wss://${API_HOST}/ws
 CDN_URL=${APP_FRONTEND_URL}
 
 DATABASE_URL=postgresql://nexusdesk:nexusdesk@postgres:5432/nexusdesk?schema=public
