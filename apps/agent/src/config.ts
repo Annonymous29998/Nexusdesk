@@ -54,8 +54,10 @@ const envSchema = z.object({
   /** 32-byte base64 key for encrypting the on-disk auth token. Falls back to a machine key file. */
   ENCRYPTION_KEY: z.string().optional(),
 
-  AGENT_CAPTURE_FPS: envInt.default(10),
-  AGENT_CAPTURE_QUALITY: envInt.default(60),
+  AGENT_CAPTURE_FPS: envInt.default(15),
+  AGENT_CAPTURE_QUALITY: envInt.default(52),
+  /** Max width sent to viewers — keeps stream fast on high-res displays. */
+  AGENT_CAPTURE_MAX_WIDTH: envInt.default(1280),
   AGENT_UPDATE_URL: z.string().url().optional(),
   AGENT_UPDATE_CHECK_INTERVAL_MS: envInt.default(6 * 60 * 60 * 1000),
 });
@@ -122,4 +124,4 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.5';
+export const AGENT_VERSION = '0.1.6';

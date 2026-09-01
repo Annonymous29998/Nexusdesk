@@ -52,7 +52,7 @@ export function ViewerPage() {
     setLocalPointer({ x, y });
     if (kind === 'mouse-move') {
       const now = Date.now();
-      if (now - lastMoveRef.current < 33) return;
+      if (now - lastMoveRef.current < 16) return;
       lastMoveRef.current = now;
     }
     const button =

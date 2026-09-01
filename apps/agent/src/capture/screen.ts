@@ -61,20 +61,34 @@ function frameFromJpeg(buf: Buffer, size: { width: number; height: number }): Ra
   };
 }
 
-/** Reliable Windows capture via GDI (works when screenshot-desktop bat fails). */
-async function captureViaPowerShell(): Promise<RawFrame | null> {
+/** Reliable Windows capture via GDI (fallback when screenshot-desktop fails). */
+async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame | null> {
   if (process.platform !== 'win32') return null;
   const out = join(tmpdir(), `nd-screen-${process.pid}-${Date.now()}.jpg`);
   const safeOut = out.replace(/'/g, "''");
   const script = [
     'Add-Type -AssemblyName System.Windows.Forms,System.Drawing',
     '$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
-    '$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height',
-    '$g = [System.Drawing.Graphics]::FromImage($bmp)',
+    '$src = New-Object System.Drawing.Bitmap $b.Width, $b.Height',
+    '$g = [System.Drawing.Graphics]::FromImage($src)',
     '$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)',
-    `$bmp.Save('${safeOut}', [System.Drawing.Imaging.ImageFormat]::Jpeg)`,
     '$g.Dispose()',
-    '$bmp.Dispose()',
+    `$maxW = ${maxWidth}`,
+    '$outBmp = $src',
+    'if ($b.Width -gt $maxW) {',
+    '  $scale = $maxW / $b.Width',
+    '  $nw = [int]($b.Width * $scale); $nh = [int]($b.Height * $scale)',
+    '  $outBmp = New-Object System.Drawing.Bitmap $nw, $nh',
+    '  $g2 = [System.Drawing.Graphics]::FromImage($outBmp)',
+    '  $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighSpeedBilinear',
+    '  $g2.DrawImage($src, 0, 0, $nw, $nh)',
+    '  $g2.Dispose(); $src.Dispose()',
+    '}',
+    `$enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }`,
+    '$ep = New-Object System.Drawing.Imaging.EncoderParameters(1)',
+    `$ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, ${jpegQuality})`,
+    `$outBmp.Save('${safeOut}', $enc, $ep)`,
+    '$outBmp.Dispose()',
   ].join('; ');
 
   try {
@@ -106,13 +120,7 @@ async function captureViaPowerShell(): Promise<RawFrame | null> {
   }
 }
 
-export async function captureScreenFrame(): Promise<RawFrame> {
-  // PowerShell GDI is more reliable than screenshot-desktop on Windows Server / RDP.
-  if (process.platform === 'win32') {
-    const psFrame = await captureViaPowerShell();
-    if (psFrame) return psFrame;
-  }
-
+export async function captureScreenFrame(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame> {
   try {
     const screenshot = await import('screenshot-desktop').then((m) => m.default).catch(() => null);
     if (screenshot) {
@@ -131,10 +139,9 @@ export async function captureScreenFrame(): Promise<RawFrame> {
     log.warn({ err }, 'screenshot-desktop failed — trying PowerShell capture');
   }
 
-  const psFrame = await captureViaPowerShell();
-  if (psFrame) {
-    log.info('captured screen via PowerShell GDI fallback');
-    return psFrame;
+  if (process.platform === 'win32') {
+    const psFrame = await captureViaPowerShell(maxWidth, jpegQuality);
+    if (psFrame) return psFrame;
   }
 
   log.warn({ err: lastCaptureError }, 'screen capture unavailable');

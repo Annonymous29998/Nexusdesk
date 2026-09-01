@@ -107,6 +107,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   const streamer = new Streamer({
     fps: env.AGENT_CAPTURE_FPS,
     quality: env.AGENT_CAPTURE_QUALITY,
+    maxWidth: env.AGENT_CAPTURE_MAX_WIDTH,
     send: (sessionId, frame) => connection.sendFrame(sessionId, frame),
     onCaptureError: (message, sessionIds) => {
       for (const sessionId of sessionIds) {
