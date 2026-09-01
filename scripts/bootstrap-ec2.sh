@@ -5,6 +5,7 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/Annonymous29998/Nexusdesk.git}"
 APP_DOMAIN="${APP_DOMAIN:-nesuxdesk.xyz}"
+APP_FRONTEND_URL="${APP_FRONTEND_URL:-https://www.${APP_DOMAIN}}"
 API_HOST="${API_HOST:-api.${APP_DOMAIN}}"
 
 echo "==> Installing Docker..."
@@ -42,10 +43,10 @@ cat > .env <<EOF
 NODE_ENV=production
 LOG_LEVEL=info
 
-APP_URL=https://${APP_DOMAIN}
-API_URL=https://${API_HOST}
-WS_URL=wss://${API_HOST}/ws
-CDN_URL=https://${APP_DOMAIN}
+APP_URL=${APP_FRONTEND_URL}
+API_URL=${APP_FRONTEND_URL}/api
+WS_URL=${APP_FRONTEND_URL/https/wss}/ws
+CDN_URL=${APP_FRONTEND_URL}
 
 DATABASE_URL=postgresql://nexusdesk:nexusdesk@postgres:5432/nexusdesk?schema=public
 DATABASE_POOL_MIN=2
@@ -96,7 +97,7 @@ RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=120
 RATE_LIMIT_AUTH_MAX=20
 
-CORS_ORIGINS=https://${APP_DOMAIN},https://www.${APP_DOMAIN}
+CORS_ORIGINS=${APP_FRONTEND_URL},https://${APP_DOMAIN}
 
 OTEL_ENABLED=false
 SENTRY_DSN=
@@ -109,8 +110,8 @@ FEATURE_AUDIT_RETENTION_DAYS=90
 INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
 SERVICE_NAME=nexusdesk
 
-VITE_API_URL=https://${API_HOST}
-VITE_WS_URL=wss://${API_HOST}/ws
+VITE_API_URL=${APP_FRONTEND_URL}/api
+VITE_WS_URL=${APP_FRONTEND_URL/https/wss}/ws
 VITE_DEMO_MODE=auto
 EOF
 
