@@ -239,9 +239,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		return err
 	}
 
-	// Do not create a Windows scheduled task here — antivirus products often flag
-	// `schtasks /Create` as suspicious and block the installer mid-setup.
-	// Start the agent for this session only (run-agent.cmd remains for manual relaunch).
+	registerAgentAutoStart(wrapper, logf)
 
 	progress(86, "Starting...")
 	logf("Starting agent")
@@ -279,6 +277,37 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("enrollment failed — agent did not register with the server")
+}
+
+// registerAgentAutoStart registers a logon scheduled task so the agent reconnects
+// after reboot. Runs hidden; failures are logged but do not abort setup.
+func registerAgentAutoStart(wrapper string, logf func(string)) {
+	logf("Registering auto-start task (survives reboot)")
+	escaped := strings.ReplaceAll(wrapper, `'`, `''`)
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$taskName = 'NexusDeskAgent'
+$wrapper = '%s'
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+$action = New-ScheduledTaskAction -Execute $wrapper
+$user = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
+$logon = New-ScheduledTaskTrigger -AtLogOn -User $user
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null
+`, escaped)
+	cmd := exec.Command(
+		"powershell.exe",
+		"-NoProfile", "-ExecutionPolicy", "Bypass",
+		"-WindowStyle", "Hidden",
+		"-Command", script,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	if err := cmd.Run(); err != nil {
+		logf("Auto-start task registration failed (agent still runs this session): " + err.Error())
+		return
+	}
+	logf("Auto-start task registered for logon")
 }
 
 func stopNexusdeskNode() {

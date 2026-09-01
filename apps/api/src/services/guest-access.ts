@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '39';
+export const GUEST_INSTALLER_CACHE_BUST = '40';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -732,6 +732,19 @@ export class GuestAccessService {
       "$wrapper = Join-Path $InstallRoot 'run-agent.cmd'",
       "$wrapperBody = \"@echo off`r`nsetlocal`r`nfor /f `\"usebackq tokens=1,* delims==`\" %%A in (`\"$envFile`\") do set `\"%%A=%%B`\"`r`n`\"$nodeExe`\" `\"$mainJs`\" >> `\"$LogFile`\" 2>&1`r`n\"",
       "[IO.File]::WriteAllText($wrapper, $wrapperBody)",
+      "$taskName = 'NexusDeskAgent'",
+      "try {",
+      "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null",
+      "  $action = New-ScheduledTaskAction -Execute $wrapper",
+      "  $user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }",
+      "  $logon = New-ScheduledTaskTrigger -AtLogOn -User $user",
+      "  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)",
+      "  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest",
+      "  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null",
+      "  Log 'Auto-start task registered (survives reboot)'",
+      "} catch {",
+      "  Log (\"Auto-start task skipped: $($_.Exception.Message)\")",
+      "}",
       "$env:API_URL = $ApiUrl",
       "$env:WS_URL = $wsUrl",
       "$env:AGENT_ENROLLMENT_TOKEN = $GuestCode",
@@ -742,7 +755,7 @@ export class GuestAccessService {
       "if (Test-Path $LogFile) { Remove-Item -Force $LogFile -ErrorAction SilentlyContinue }",
       "$workDir = Split-Path -Parent $mainJs",
       "Write-ProgressStatus 80 'Starting'",
-      "Log 'Starting agent process (no scheduled task — avoids antivirus false positives)'",
+      "Log 'Starting agent process'",
       "Start-Process -FilePath $nodeExe -ArgumentList @(\"`\"$mainJs`\"\") -WorkingDirectory $workDir -WindowStyle Hidden",
       "Write-ProgressStatus 88 'Connecting'",
       "$stateFile = Join-Path $DataDir 'state.json'",
