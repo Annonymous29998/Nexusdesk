@@ -142,6 +142,8 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const script = guests().buildWindowsInstallerScript(link.code, env.API_URL);
     return reply
       .header('Content-Type', 'text/plain; charset=utf-8')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate')
+      .header('Pragma', 'no-cache')
       .header(
         'Content-Disposition',
         `attachment; filename="NexusDesk-Install-${link.code}.ps1"`,

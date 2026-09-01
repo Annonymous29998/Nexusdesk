@@ -31,9 +31,12 @@ export function ViewerPage() {
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [detail, setDetail] = useState<string | undefined>();
-  const [frameSrc, setFrameSrc] = useState<string | null>(null);
+  const [showScreen, setShowScreen] = useState(false);
+  const [initialFrame, setInitialFrame] = useState<string | null>(null);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
+  const frameImgRef = useRef<HTMLImageElement>(null);
+  const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const lastMoveRef = useRef(0);
   const minimizingRef = useRef(false);
@@ -77,6 +80,7 @@ export function ViewerPage() {
   // Entering the full viewer clears any floating mini preview for the same session.
   useEffect(() => {
     if (!sessionId) return;
+    minimizingRef.current = false;
     const current = useActiveViewerStore.getState().minimized;
     if (current?.sessionId === sessionId) {
       clearMinimized();
@@ -85,6 +89,9 @@ export function ViewerPage() {
 
   useEffect(() => {
     if (!sessionId || !deviceId) return;
+    gotFirstFrameRef.current = false;
+    setShowScreen(false);
+    setInitialFrame(null);
     const client = new ScreenStreamClient({
       sessionId,
       deviceId,
@@ -93,7 +100,14 @@ export function ViewerPage() {
         setDetail(d);
       },
       onFrame: (jpegBase64) => {
-        setFrameSrc(`data:image/jpeg;base64,${jpegBase64}`);
+        const src = `data:image/jpeg;base64,${jpegBase64}`;
+        if (gotFirstFrameRef.current && frameImgRef.current) {
+          frameImgRef.current.src = src;
+          return;
+        }
+        gotFirstFrameRef.current = true;
+        setInitialFrame(src);
+        setShowScreen(true);
       },
     });
     clientRef.current = client;
@@ -188,10 +202,11 @@ export function ViewerPage() {
           clientRef.current?.sendInput({ kind: 'key-up', key: e.key });
         }}
       >
-        {frameSrc ? (
+        {showScreen ? (
           <div className="relative inline-block max-h-full max-w-full">
             <img
-              src={frameSrc}
+              ref={frameImgRef}
+              src={initialFrame ?? undefined}
               alt="Remote screen"
               className="max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
               draggable={false}
@@ -214,7 +229,12 @@ export function ViewerPage() {
               onContextMenu={(e) => e.preventDefault()}
               onWheel={(e) => {
                 e.preventDefault();
-                clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY });
+                const el = e.currentTarget as HTMLElement;
+                const rect = el.getBoundingClientRect();
+                if (!rect.width || !rect.height) return;
+                const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+                clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
               }}
             />
             {localPointer ? (

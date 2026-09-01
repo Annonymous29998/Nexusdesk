@@ -42,6 +42,7 @@ export class ScreenStreamClient {
   private startRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private lastCaptureError: string | null = null;
+  private streaming = false;
 
   constructor(private readonly options: ScreenStreamOptions) {}
 
@@ -101,10 +102,9 @@ export class ScreenStreamClient {
             captureError ? `capture: ${captureError}` : undefined,
           );
         } else {
-          // Agent WS may reconnect a moment later — retry a few times, then show offline.
           this.options.onStatus?.(
-            this.startRetries >= 8 ? 'offline' : 'waiting',
-            this.startRetries >= 8
+            this.startRetries >= 12 ? 'offline' : 'reconnecting',
+            this.startRetries >= 12
               ? 'agent WebSocket offline — is the support app running?'
               : 'waiting for agent…',
           );
@@ -118,7 +118,10 @@ export class ScreenStreamClient {
         if (typeof image === 'string') {
           this.startRetries = 0;
           this.lastCaptureError = null;
-          this.options.onStatus?.('streaming');
+          if (!this.streaming) {
+            this.streaming = true;
+            this.options.onStatus?.('streaming');
+          }
           this.options.onFrame?.(image);
         }
         return;
@@ -168,7 +171,7 @@ export class ScreenStreamClient {
   }
 
   private scheduleStreamRetry(): void {
-    if (this.closed || this.startRetries >= 40) {
+    if (this.closed || this.startRetries >= 12) {
       this.options.onStatus?.(
         'offline',
         this.lastCaptureError

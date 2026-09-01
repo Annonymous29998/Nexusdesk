@@ -10,6 +10,7 @@ export interface AgentConnectionOptions {
   getToken: () => string;
   maxReconnectDelayMs: number;
   onCommand: (command: unknown) => Promise<void> | void;
+  onAuthError?: () => Promise<string | null>;
 }
 
 export class AgentConnection {
@@ -132,7 +133,22 @@ export class AgentConnection {
           this.registered = true;
           this.send(WS_EVENTS.agentRegister, {});
         }
-        for (const handler of this.authHandlers) handler();
+        if (!msg.data?.registered) {
+          for (const handler of this.authHandlers) handler();
+        }
+        return;
+      }
+      if (msg.event === WS_EVENTS.authError) {
+        log.warn({ message: msg.data?.message }, 'websocket auth rejected');
+        const nextToken = await this.options.onAuthError?.();
+        if (nextToken && this.socket?.readyState === WebSocket.OPEN) {
+          this.socket.send(
+            JSON.stringify({
+              event: WS_EVENTS.auth,
+              data: { kind: 'agent', token: nextToken },
+            }),
+          );
+        }
         return;
       }
       if (msg.event === WS_EVENTS.agentCommand) {

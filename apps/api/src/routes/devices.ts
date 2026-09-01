@@ -91,6 +91,11 @@ export async function registerDeviceRoutes(app: FastifyInstance): Promise<void> 
     return devices().enroll(body);
   });
 
+  app.post(API_ROUTES.devices.tokenRefresh, async (req) => {
+    const body = z.object({ refreshToken: z.string().min(10) }).parse(req.body);
+    return devices().refreshAgentToken(body.refreshToken);
+  });
+
   app.post(API_ROUTES.devices.heartbeat, { preHandler: [requireAgent] }, async (req) => {
     const { deviceId } = req.params as { deviceId: string };
     if (req.authAgent!.did !== deviceId) {

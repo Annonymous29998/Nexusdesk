@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { RawFrame } from './encoder.js';
+import { jpegDimensions } from './jpeg-utils.js';
+import { captureViaGdi } from './win-gdi.js';
 import si from 'systeminformation';
 import { createLogger } from '../logger.js';
-import { setInputScreenSize } from './input.js';
+import { syncPhysicalInputScreenSize } from './input.js';
 
 const log = createLogger('capture');
 const execFileAsync = promisify(execFile);
@@ -16,24 +18,6 @@ let lastCaptureError: string | null = null;
 
 export function getLastCaptureError(): string | null {
   return lastCaptureError;
-}
-
-/** Read width/height from a JPEG buffer (SOF0/SOF2). */
-function jpegDimensions(buf: Buffer): { width: number; height: number } | null {
-  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
-  let i = 2;
-  while (i + 9 < buf.length) {
-    if (buf[i] !== 0xff) return null;
-    const marker = buf[i + 1];
-    if (marker === 0xd9 || marker === 0xda) return null;
-    const len = buf.readUInt16BE(i + 2);
-    if (len < 2) return null;
-    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
-      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-    }
-    i += 2 + len;
-  }
-  return null;
 }
 
 async function primaryDisplaySize(): Promise<{ width: number; height: number }> {
@@ -61,7 +45,7 @@ function frameFromJpeg(buf: Buffer, size: { width: number; height: number }): Ra
   };
 }
 
-/** Reliable Windows capture via GDI (fallback when screenshot-desktop fails). */
+/** Reliable Windows capture via GDI (fallback when in-process GDI fails). */
 async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame | null> {
   if (process.platform !== 'win32') return null;
   const out = join(tmpdir(), `nd-screen-${process.pid}-${Date.now()}.jpg`);
@@ -106,7 +90,6 @@ async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<
     if (!data.length) return null;
     const jpegSize = jpegDimensions(data) ?? (await primaryDisplaySize());
     cachedSize = jpegSize;
-    setInputScreenSize(jpegSize.width, jpegSize.height);
     lastCaptureError = null;
     return frameFromJpeg(data, jpegSize);
   } catch (err) {
@@ -121,6 +104,16 @@ async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<
 }
 
 export async function captureScreenFrame(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame> {
+  if (process.platform === 'win32') {
+    await syncPhysicalInputScreenSize();
+    const gdiFrame = await captureViaGdi(maxWidth, jpegQuality);
+    if (gdiFrame) {
+      lastCaptureError = null;
+      cachedSize = { width: gdiFrame.width, height: gdiFrame.height };
+      return gdiFrame;
+    }
+  }
+
   try {
     const screenshot = await import('screenshot-desktop').then((m) => m.default).catch(() => null);
     if (screenshot) {
@@ -129,7 +122,6 @@ export async function captureScreenFrame(maxWidth = 1280, jpegQuality = 52): Pro
         const jpegSize = jpegDimensions(buf);
         const size = jpegSize ?? (await primaryDisplaySize());
         if (jpegSize) cachedSize = jpegSize;
-        setInputScreenSize(size.width, size.height);
         lastCaptureError = null;
         return frameFromJpeg(buf, size);
       }

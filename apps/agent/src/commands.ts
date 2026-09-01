@@ -82,6 +82,7 @@ export class CommandHandler {
               log.info({ kind: payload.kind, x: payload.x, y: payload.y }, 'remote input');
             }
             void handleRemoteInput(payload);
+            this.options.streamer.requestRefresh(payload.kind);
           }
           return;
         }

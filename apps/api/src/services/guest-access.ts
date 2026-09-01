@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '41';
+export const GUEST_INSTALLER_CACHE_BUST = '44';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -716,7 +716,8 @@ export class GuestAccessService {
       "  if (-not $nested) { throw 'Agent main.js not found' }",
       "  $mainJs = $nested.FullName",
       "}",
-      "$wsUrl = $ApiUrl -replace '^http','ws'",
+      "$base = ($ApiUrl -replace '/api$','').TrimEnd('/')",
+      "$wsUrl = (($base -replace '^http','ws').TrimEnd('/ws'))",
       "$envFile = Join-Path $DataDir 'agent.env'",
       "$envLines = @(",
       "  \"API_URL=$ApiUrl\",",

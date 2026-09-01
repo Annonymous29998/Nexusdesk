@@ -32,18 +32,36 @@ export function registerSocketHandlers(app: FastifyInstance): void {
   const sessionRooms = new Map<string, Set<SocketClient>>();
   // Active screen-stream sessions: sessionId -> { deviceId, viewers }.
   const streamSessions = new Map<string, { deviceId: string; viewers: Set<SocketClient> }>();
+  const streamStopTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const STREAM_STOP_GRACE_MS = 4000;
+
+  function cancelPendingStreamStop(sessionId: string) {
+    const timer = streamStopTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      streamStopTimers.delete(sessionId);
+    }
+  }
 
   function stopStreaming(client: SocketClient) {
     if (client.role !== 'viewer' || !client.sessionId) return;
-    const entry = streamSessions.get(client.sessionId);
+    const sessionId = client.sessionId;
+    const entry = streamSessions.get(sessionId);
     if (!entry) return;
     entry.viewers.delete(client);
     if (entry.viewers.size === 0) {
-      app.agentGateway.sendCommand(entry.deviceId, {
-        type: 'stop_stream',
-        payload: { sessionId: client.sessionId },
-      });
-      streamSessions.delete(client.sessionId);
+      cancelPendingStreamStop(sessionId);
+      const timer = setTimeout(() => {
+        streamStopTimers.delete(sessionId);
+        const current = streamSessions.get(sessionId);
+        if (!current || current.viewers.size > 0) return;
+        app.agentGateway.sendCommand(current.deviceId, {
+          type: 'stop_stream',
+          payload: { sessionId },
+        });
+        streamSessions.delete(sessionId);
+      }, STREAM_STOP_GRACE_MS);
+      streamStopTimers.set(sessionId, timer);
     }
   }
 
@@ -119,35 +137,55 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           const token = String(data.token ?? '');
           const kind = String(data.kind ?? 'user');
           if (kind === 'agent') {
-            const claims = verifyAgentToken(token);
-            client = {
-              socket,
-              role: 'agent',
-              deviceId: claims.did,
-              organizationId: claims.org,
-            };
-            agents.set(claims.did, client);
-            socket.send(
-              JSON.stringify({
-                event: WS_EVENTS.authOk,
-                data: { role: 'agent', deviceId: claims.did },
-              }),
-            );
-            log.info({ deviceId: claims.did }, 'agent connected');
+            try {
+              const claims = verifyAgentToken(token);
+              client = {
+                socket,
+                role: 'agent',
+                deviceId: claims.did,
+                organizationId: claims.org,
+              };
+              agents.set(claims.did, client);
+              socket.send(
+                JSON.stringify({
+                  event: WS_EVENTS.authOk,
+                  data: { role: 'agent', deviceId: claims.did },
+                }),
+              );
+              log.info({ deviceId: claims.did }, 'agent connected');
+            } catch (err) {
+              log.warn({ err }, 'agent auth failed');
+              socket.send(
+                JSON.stringify({
+                  event: WS_EVENTS.authError,
+                  data: { message: 'Invalid or expired agent token' },
+                }),
+              );
+            }
           } else {
-            const claims = verifyAccessToken(token);
-            client = {
-              socket,
-              role: 'viewer',
-              userId: claims.sub,
-              organizationId: claims.org,
-            };
-            socket.send(
-              JSON.stringify({
-                event: WS_EVENTS.authOk,
-                data: { role: 'viewer', userId: claims.sub },
-              }),
-            );
+            try {
+              const claims = verifyAccessToken(token);
+              client = {
+                socket,
+                role: 'viewer',
+                userId: claims.sub,
+                organizationId: claims.org,
+              };
+              socket.send(
+                JSON.stringify({
+                  event: WS_EVENTS.authOk,
+                  data: { role: 'viewer', userId: claims.sub },
+                }),
+              );
+            } catch (err) {
+              log.warn({ err }, 'viewer auth failed');
+              socket.send(
+                JSON.stringify({
+                  event: WS_EVENTS.authError,
+                  data: { message: 'Invalid or expired access token' },
+                }),
+              );
+            }
           }
           return;
         }
@@ -214,7 +252,7 @@ export function registerSocketHandlers(app: FastifyInstance): void {
         if (event === WS_EVENTS.screenFrame && client.role === 'agent') {
           const sessionId = String(data.sessionId ?? '');
           const entry = streamSessions.get(sessionId);
-          if (entry) {
+          if (entry && entry.deviceId === client.deviceId) {
             const payload = JSON.stringify({ event: WS_EVENTS.screenFrame, data });
             for (const viewer of entry.viewers) {
               if (viewer.socket.readyState === 1) viewer.socket.send(payload);
@@ -252,7 +290,23 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             );
             return;
           }
+          try {
+            await new DevicesService(app.prisma).get(client.organizationId, deviceId);
+          } catch {
+            socket.send(
+              JSON.stringify({
+                event: WS_EVENTS.error,
+                data: { message: 'Device not found in your organization' },
+              }),
+            );
+            return;
+          }
+          cancelPendingStreamStop(sessionId);
           let entry = streamSessions.get(sessionId);
+          if (entry && entry.deviceId !== deviceId) {
+            streamSessions.delete(sessionId);
+            entry = undefined;
+          }
           if (!entry) {
             entry = { deviceId, viewers: new Set() };
             streamSessions.set(sessionId, entry);
@@ -293,7 +347,7 @@ export function registerSocketHandlers(app: FastifyInstance): void {
         if (event === WS_EVENTS.inputEvent && client.role === 'viewer') {
           const sessionId = String(data.sessionId ?? client.sessionId ?? '');
           const entry = streamSessions.get(sessionId);
-          if (entry) {
+          if (entry && entry.viewers.has(client)) {
             const kind = String(data.kind ?? '');
             if (kind && kind !== 'mouse-move') {
               log.info({ sessionId, deviceId: entry.deviceId, kind }, 'forward input');

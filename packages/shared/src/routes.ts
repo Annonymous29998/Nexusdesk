@@ -49,6 +49,7 @@ export const API_ROUTES = {
     root: '/organizations/:orgId/devices',
     byId: '/organizations/:orgId/devices/:deviceId',
     enroll: '/devices/enroll',
+    tokenRefresh: '/devices/token/refresh',
     heartbeat: '/devices/:deviceId/heartbeat',
     commands: '/organizations/:orgId/devices/:deviceId/commands',
   },

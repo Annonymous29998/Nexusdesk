@@ -17,14 +17,14 @@ vi.mock('../../src/config/env.js', async () => {
 
 describe('Windows installer enrollment reset', () => {
   it('bat launcher downloads setup.ps1 and keeps the window open', async () => {
-    const { GuestAccessService } = await import('../../src/services/guest-access.js');
+    const { GuestAccessService, GUEST_INSTALLER_CACHE_BUST } = await import('../../src/services/guest-access.js');
     const service = new GuestAccessService({} as never);
     const bat = service.buildWindowsBatchLauncher('FF9A496P', 'http://192.168.18.5:4000');
 
     expect(bat).toContain('ND_KEEPOPEN');
     expect(bat).toContain('cmd /k call');
     expect(bat).toContain('[1/2] Downloading package');
-    expect(bat).toContain('windows.ps1?v=15');
+    expect(bat).toContain(`windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`);
     expect(bat).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File');
     expect(bat).not.toContain('setup.b64');
   });

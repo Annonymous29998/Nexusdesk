@@ -7,6 +7,8 @@ import { createLogger } from '../logger.js';
 const execFileAsync = promisify(execFile);
 const log = createLogger('input');
 let locked = false;
+let stealthInput = false;
+let cursorHidden = false;
 let screenSize: { width: number; height: number } | null = null;
 let winApi: WinApi | null = null;
 let winApiFailed = false;
@@ -25,15 +27,38 @@ interface WinApi {
   SetProcessDPIAware: () => boolean;
   GetSystemMetrics: (n: number) => number;
   SetCursorPos: (x: number, y: number) => boolean;
+  ShowCursor: (show: boolean) => number;
   mouse_event: (f: number, dx: number, dy: number, data: number, extra: number) => void;
   keybd_event: (vk: number, scan: number, flags: number, extra: number) => void;
 }
 
-/** Prefer capture dimensions so clicks map to the same pixels as the stream. */
+/** Prefer physical display metrics so clicks map correctly even when the stream is scaled. */
 export function setInputScreenSize(width: number, height: number): void {
   if (width > 0 && height > 0) {
     screenSize = { width, height };
   }
+}
+
+/** Sync click coordinates to the real monitor size (not scaled JPEG dimensions). */
+export async function syncPhysicalInputScreenSize(): Promise<void> {
+  if (platform() !== 'win32') return;
+  const api = await loadWinApi();
+  if (!api) return;
+  api.SetProcessDPIAware();
+  setInputScreenSize(
+    Math.max(1, api.GetSystemMetrics(0)),
+    Math.max(1, api.GetSystemMetrics(1)),
+  );
+}
+
+/** Ensure a visible cursor after a crash or aborted session. */
+export async function ensureGuestCursorVisible(): Promise<void> {
+  cursorHidden = false;
+  if (platform() !== 'win32') return;
+  const api = await loadWinApi();
+  if (!api) return;
+  let count = 0;
+  while (api.ShowCursor(true) < 0 && count < 128) count += 1;
 }
 
 async function getScreenSize(): Promise<{ width: number; height: number }> {
@@ -99,6 +124,7 @@ async function loadWinApi(): Promise<WinApi | null> {
       SetProcessDPIAware: user32.func('bool SetProcessDPIAware()'),
       GetSystemMetrics: user32.func('int GetSystemMetrics(int nIndex)'),
       SetCursorPos: user32.func('bool SetCursorPos(int X, int Y)'),
+      ShowCursor: user32.func('int ShowCursor(bool bShow)'),
       mouse_event: user32.func(
         'void mouse_event(uint32 dwFlags, uint32 dx, uint32 dy, uint32 dwData, uintptr dwExtraInfo)',
       ),
@@ -117,12 +143,37 @@ async function loadWinApi(): Promise<WinApi | null> {
 }
 
 function absoluteMove(api: WinApi, px: number, py: number): void {
-  const w = Math.max(1, api.GetSystemMetrics(0) - 1);
-  const h = Math.max(1, api.GetSystemMetrics(1) - 1);
-  const ax = Math.round((px * 65535) / w);
-  const ay = Math.round((py * 65535) / h);
   api.SetCursorPos(px, py);
-  api.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0);
+}
+
+async function hideSystemCursor(): Promise<void> {
+  const api = await loadWinApi();
+  if (!api || cursorHidden) return;
+  let count = 0;
+  while (api.ShowCursor(false) >= 0 && count < 128) count += 1;
+  cursorHidden = true;
+  log.info('guest cursor hidden for remote session');
+}
+
+async function showSystemCursor(): Promise<void> {
+  const api = await loadWinApi();
+  if (!api || !cursorHidden) return;
+  let count = 0;
+  while (api.ShowCursor(true) < 0 && count < 128) count += 1;
+  cursorHidden = false;
+  log.info('guest cursor restored after remote session');
+}
+
+export function setStealthInput(enabled: boolean): void {
+  stealthInput = enabled;
+}
+
+export async function onRemoteSessionStart(): Promise<void> {
+  if (stealthInput && platform() === 'win32') await hideSystemCursor();
+}
+
+export async function onRemoteSessionEnd(): Promise<void> {
+  if (platform() === 'win32') await showSystemCursor();
 }
 
 async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): Promise<boolean> {
@@ -209,12 +260,15 @@ async function winInjectPowerShell(event: RemoteInputEvent, px: number, py: numb
 
 export async function prepareWindowsInput(): Promise<void> {
   if (platform() !== 'win32') return;
+  await ensureGuestCursorVisible();
   await loadWinApi();
+  await syncPhysicalInputScreenSize();
 }
 
 /** Apply a normalised remote input event from the technician viewer. */
 export async function handleRemoteInput(event: RemoteInputEvent): Promise<void> {
   if (locked) return;
+  if (stealthInput && event.kind === 'mouse-move') return;
   const { width, height } = await getScreenSize();
   const px = Math.max(0, Math.min(width - 1, Math.round((event.x ?? 0) * width)));
   const py = Math.max(0, Math.min(height - 1, Math.round((event.y ?? 0) * height)));

@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
-import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey } from './auth.js';
+import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey, type AgentTokens } from './auth.js';
 import { enrollDevice } from './enroll.js';
 import { AgentConnection } from './connection.js';
 import { HeartbeatService } from './heartbeat.js';
@@ -10,6 +10,8 @@ import { Streamer } from './stream.js';
 import { getStaticSystemInfo } from './system/info.js';
 import { acquireSingleInstance, releaseSingleInstance } from './single-instance.js';
 import { createLogger } from './logger.js';
+import { ensureGuestCursorVisible } from './capture/input.js';
+import { maybeRefreshDeviceToken } from './refresh-token.js';
 
 const log = createLogger('agent');
 
@@ -104,10 +106,19 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   }
 
   let connection: AgentConnection;
+  let activeTokens: AgentTokens = tokens!;
+
+  const refreshTokens = async (): Promise<string | null> => {
+    const refreshed = await maybeRefreshDeviceToken(env, auth, activeTokens);
+    activeTokens = refreshed;
+    return refreshed.deviceToken;
+  };
+
   const streamer = new Streamer({
     fps: env.AGENT_CAPTURE_FPS,
     quality: env.AGENT_CAPTURE_QUALITY,
     maxWidth: env.AGENT_CAPTURE_MAX_WIDTH,
+    stealthInput: env.AGENT_STEALTH_INPUT,
     send: (sessionId, frame) => connection.sendFrame(sessionId, frame),
     onCaptureError: (message, sessionIds) => {
       for (const sessionId of sessionIds) {
@@ -125,7 +136,8 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       const base = state.wsUrl.replace(/\/$/, '');
       return base.endsWith('/ws') ? base : `${base}/ws`;
     })(),
-    getToken: () => auth.load()?.deviceToken ?? tokens!.deviceToken,
+    getToken: () => auth.load()?.deviceToken ?? activeTokens.deviceToken,
+    onAuthError: refreshTokens,
     maxReconnectDelayMs: env.AGENT_MAX_RECONNECT_DELAY_MS,
     onCommand: (command) => commands.handle(command),
   });
@@ -153,6 +165,8 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     heartbeat.stop();
   });
 
+  await ensureGuestCursorVisible();
+  activeTokens = await maybeRefreshDeviceToken(env, auth, activeTokens);
   await connection.connect();
   log.info({ deviceId: state.deviceId }, 'agent online');
 
@@ -160,6 +174,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     log.info({ signal }, 'shutting down');
     heartbeat.stop();
     streamer.stop();
+    await ensureGuestCursorVisible();
     await connection.close();
     clearPidFile();
     await releaseSingleInstance();

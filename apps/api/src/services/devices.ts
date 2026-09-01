@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { DEFAULT_AGENT_SETTINGS, ERROR_CODES } from '@nexusdesk/shared';
 import { DeviceStatus } from '@nexusdesk/types';
-import { hashToken, createAgentToken } from '../lib/tokens.js';
+import { hashToken, createAgentToken, verifyAgentToken } from '../lib/tokens.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
 import {
@@ -236,7 +236,11 @@ export class DevicesService {
         ? wsBase
         : apiBase.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
 
-    const agent = createAgentToken({ deviceId: device.id, organizationId: org.id });
+    const agent = createAgentToken({
+      deviceId: device.id,
+      organizationId: org.id,
+      ttl: '30d',
+    });
     await this.deviceTokens.create({
       deviceId: device.id,
       organizationId: org.id,
@@ -248,7 +252,7 @@ export class DevicesService {
     const refresh = createAgentToken({
       deviceId: device.id,
       organizationId: org.id,
-      ttl: '30d',
+      ttl: '90d',
     });
 
     await this.audit.logActivity({
@@ -268,6 +272,58 @@ export class DevicesService {
       deviceToken: agent.token,
       refreshToken: refresh.token,
       heartbeatIntervalMs: DEFAULT_AGENT_SETTINGS.heartbeatIntervalMs,
+      wsUrl: derivedWs,
+    };
+  }
+
+  async refreshAgentToken(refreshToken: string) {
+    let claims;
+    try {
+      claims = verifyAgentToken(refreshToken);
+    } catch {
+      throw AppError.unauthorized('Invalid refresh token', ERROR_CODES.TOKEN_INVALID);
+    }
+
+    const device = await this.devices.findById(claims.did);
+    if (!device || device.organizationId !== claims.org) {
+      throw AppError.notFound('Device not found', ERROR_CODES.DEVICE_NOT_FOUND);
+    }
+    if (device.status === DeviceStatus.Disabled) {
+      throw AppError.forbidden('Device disabled', ERROR_CODES.DEVICE_DISABLED);
+    }
+
+    const env = getEnv();
+    const wsBase = env.WS_URL.replace(/\/$/, '').replace(/\/ws$/, '');
+    const apiBase = env.API_URL.replace(/\/$/, '').replace(/\/api$/, '');
+    const derivedWs =
+      wsBase.startsWith('ws')
+        ? wsBase
+        : apiBase.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+
+    const agent = createAgentToken({
+      deviceId: device.id,
+      organizationId: device.organizationId,
+      ttl: '30d',
+    });
+    await this.deviceTokens.create({
+      deviceId: device.id,
+      organizationId: device.organizationId,
+      tokenHash: hashToken(agent.token),
+      jti: agent.claims.jti,
+      expiresAt: agent.expiresAt,
+    });
+
+    const refresh = createAgentToken({
+      deviceId: device.id,
+      organizationId: device.organizationId,
+      ttl: '90d',
+    });
+
+    return {
+      deviceId: device.id,
+      organizationId: device.organizationId,
+      deviceToken: agent.token,
+      refreshToken: refresh.token,
       wsUrl: derivedWs,
     };
   }

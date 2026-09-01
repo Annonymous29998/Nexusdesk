@@ -17,14 +17,19 @@ export function MinimizedViewerDock() {
   const minimized = useActiveViewerStore((s) => s.minimized);
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
-  const [frameSrc, setFrameSrc] = useState<string | null>(null);
+  const [showScreen, setShowScreen] = useState(false);
+  const [initialFrame, setInitialFrame] = useState<string | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
+  const frameImgRef = useRef<HTMLImageElement>(null);
+  const gotFirstFrameRef = useRef(false);
 
   useEffect(() => {
     if (!minimized) {
       clientRef.current?.close();
       clientRef.current = null;
-      setFrameSrc(null);
+      gotFirstFrameRef.current = false;
+      setInitialFrame(null);
+      setShowScreen(false);
       setStatus('idle');
       return;
     }
@@ -33,7 +38,16 @@ export function MinimizedViewerDock() {
       sessionId: minimized.sessionId,
       deviceId: minimized.deviceId,
       onStatus: (s) => setStatus(s),
-      onFrame: (jpegBase64) => setFrameSrc(`data:image/jpeg;base64,${jpegBase64}`),
+      onFrame: (jpegBase64) => {
+        const src = `data:image/jpeg;base64,${jpegBase64}`;
+        if (gotFirstFrameRef.current && frameImgRef.current) {
+          frameImgRef.current.src = src;
+          return;
+        }
+        gotFirstFrameRef.current = true;
+        setInitialFrame(src);
+        setShowScreen(true);
+      },
     });
     clientRef.current = client;
     client.connect();
@@ -103,9 +117,10 @@ export function MinimizedViewerDock() {
         onClick={restore}
         aria-label="Restore full viewer"
       >
-        {frameSrc ? (
+        {showScreen ? (
           <img
-            src={frameSrc}
+            ref={frameImgRef}
+            src={initialFrame ?? undefined}
             alt="Remote screen preview"
             className="aspect-video w-full object-contain"
             draggable={false}
