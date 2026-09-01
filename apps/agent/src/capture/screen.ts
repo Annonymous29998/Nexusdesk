@@ -106,11 +106,16 @@ async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<
 export async function captureScreenFrame(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame> {
   if (process.platform === 'win32') {
     await syncPhysicalInputScreenSize();
-    const gdiFrame = await captureViaGdi(maxWidth, jpegQuality);
-    if (gdiFrame) {
-      lastCaptureError = null;
-      cachedSize = { width: gdiFrame.width, height: gdiFrame.height };
-      return gdiFrame;
+    try {
+      const gdiFrame = await captureViaGdi(maxWidth, jpegQuality);
+      if (gdiFrame) {
+        lastCaptureError = null;
+        cachedSize = { width: gdiFrame.width, height: gdiFrame.height };
+        return gdiFrame;
+      }
+    } catch (err) {
+      lastCaptureError = err instanceof Error ? err.message : String(err);
+      log.warn({ err }, 'GDI capture failed — trying fallback');
     }
   }
 

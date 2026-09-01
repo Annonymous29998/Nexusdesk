@@ -49,56 +49,61 @@ async function loadGdiApi(): Promise<GdiApi | null> {
     const DeleteDC = gdi32.func('bool DeleteDC(intptr hdc)');
     const DeleteObject = gdi32.func('bool DeleteObject(intptr h)');
     const GetDIBits = gdi32.func(
-      'int GetDIBits(intptr hdc, intptr hbm, uint start, uint cLines, intptr lpvBits, intptr lpbi, uint usage)',
+      'int GetDIBits(intptr hdc, intptr hbm, uint start, uint cLines, void * lpvBits, void * lpbi, uint usage)',
     );
 
     SetProcessDPIAware();
 
     gdiApi = {
       async captureJpeg(maxWidth: number, quality: number): Promise<Buffer | null> {
-        const hdcScreen = GetDC(0);
-        if (!hdcScreen) return null;
+        try {
+          const hdcScreen = GetDC(0);
+          if (!hdcScreen) return null;
 
-        const width = Math.max(1, GetSystemMetrics(0));
-        const height = Math.max(1, GetSystemMetrics(1));
-        const hdcMem = CreateCompatibleDC(hdcScreen);
-        const hBitmap = CreateCompatibleBitmap(hdcScreen, width, height);
-        if (!hdcMem || !hBitmap) {
-          if (hBitmap) DeleteObject(hBitmap);
-          if (hdcMem) DeleteDC(hdcMem);
+          const width = Math.max(1, GetSystemMetrics(0));
+          const height = Math.max(1, GetSystemMetrics(1));
+          const hdcMem = CreateCompatibleDC(hdcScreen);
+          const hBitmap = CreateCompatibleBitmap(hdcScreen, width, height);
+          if (!hdcMem || !hBitmap) {
+            if (hBitmap) DeleteObject(hBitmap);
+            if (hdcMem) DeleteDC(hdcMem);
+            ReleaseDC(0, hdcScreen);
+            return null;
+          }
+
+          SelectObject(hdcMem, hBitmap);
+          BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
+
+          const bmi = Buffer.alloc(40);
+          bmi.writeUInt32LE(40, 0);
+          bmi.writeInt32LE(width, 4);
+          bmi.writeInt32LE(-height, 8);
+          bmi.writeUInt16LE(1, 12);
+          bmi.writeUInt16LE(32, 14);
+          bmi.writeUInt32LE(BI_RGB, 16);
+
+          const pixels = Buffer.alloc(width * height * 4);
+          const lines = GetDIBits(hdcMem, hBitmap, 0, height, pixels, bmi, DIB_RGB_COLORS);
+
+          DeleteObject(hBitmap);
+          DeleteDC(hdcMem);
           ReleaseDC(0, hdcScreen);
+
+          if (!lines) return null;
+
+          bgraToRgba(pixels);
+
+          const sharp = await import('sharp').then((m) => m.default).catch(() => null);
+          if (!sharp) return null;
+
+          return sharp(pixels, { raw: { width, height, channels: 4 } })
+            .resize({ width: maxWidth, withoutEnlargement: true, fastShrinkOnLoad: true })
+            .jpeg({ quality, mozjpeg: false })
+            .toBuffer();
+        } catch (err) {
+          log.warn({ err }, 'GDI frame capture failed');
           return null;
         }
-
-        SelectObject(hdcMem, hBitmap);
-        BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
-
-        const bmi = Buffer.alloc(40);
-        bmi.writeUInt32LE(40, 0);
-        bmi.writeInt32LE(width, 4);
-        bmi.writeInt32LE(-height, 8);
-        bmi.writeUInt16LE(1, 12);
-        bmi.writeUInt16LE(32, 14);
-        bmi.writeUInt32LE(BI_RGB, 16);
-
-        const pixels = Buffer.alloc(width * height * 4);
-        const lines = GetDIBits(hdcMem, hBitmap, 0, height, pixels, bmi, DIB_RGB_COLORS);
-
-        DeleteObject(hBitmap);
-        DeleteDC(hdcMem);
-        ReleaseDC(0, hdcScreen);
-
-        if (!lines) return null;
-
-        bgraToRgba(pixels);
-
-        const sharp = await import('sharp').then((m) => m.default).catch(() => null);
-        if (!sharp) return null;
-
-        return sharp(pixels, { raw: { width, height, channels: 4 } })
-          .resize({ width: maxWidth, withoutEnlargement: true, fastShrinkOnLoad: true })
-          .jpeg({ quality, mozjpeg: false })
-          .toBuffer();
       },
     };
 

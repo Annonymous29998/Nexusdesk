@@ -129,4 +129,4 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.9';
+export const AGENT_VERSION = '0.1.10';
