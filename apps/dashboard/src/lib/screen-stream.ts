@@ -1,6 +1,6 @@
 import { WS_EVENTS } from '@nexusdesk/shared';
 import { getAccessToken } from '@/api/client';
-import { getWsUrl } from '@/lib/env';
+import { getWsEndpoint } from '@/lib/env';
 
 export type StreamStatus =
   | 'idle'
@@ -59,7 +59,7 @@ export class ScreenStreamClient {
       return;
     }
 
-    const url = `${getWsUrl().replace(/\/$/, '')}/ws`;
+    const url = getWsEndpoint();
     try {
       this.ws = new WebSocket(url);
     } catch (err) {
