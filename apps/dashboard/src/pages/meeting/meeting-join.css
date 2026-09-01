@@ -792,3 +792,286 @@ body.meeting-guest-page #root {
     align-items: stretch;
   }
 }
+
+/* —— Guest List invitation template —— */
+
+body.meeting-guest--guest_list {
+  background: #1a1d21 !important;
+  font-family: 'Segoe UI', 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+.guest-invite-loader {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1d21;
+}
+
+.guest-invite-loader__card {
+  text-align: center;
+  padding: 2rem;
+  color: #e8e8e8;
+}
+
+.guest-invite-loader__tag {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  margin-bottom: 1rem;
+}
+
+.guest-invite-loader__spin {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 1rem;
+  border: 3px solid #3d4450;
+  border-top-color: #5ec4b8;
+  border-radius: 50%;
+  animation: meeting-spin 0.8s linear infinite;
+}
+
+/* Mock remote-support dashboard behind the modal */
+.guest-join-dashboard {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #1e2228 0%, #171a1f 100%);
+  color: #c5cad3;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.guest-join-dashboard__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid #2a2f38;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.guest-join-dashboard__device {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guest-join-dashboard__check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #5a6270;
+  border-radius: 2px;
+  background: #2a3038;
+}
+
+.guest-join-dashboard__device-name {
+  font-weight: 600;
+  color: #f3f4f6;
+  letter-spacing: 0.02em;
+}
+
+.guest-join-dashboard__session {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.guest-join-dashboard__avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6b7280, #9ca3af);
+  flex-shrink: 0;
+}
+
+.guest-join-dashboard__bar {
+  width: 72px;
+  height: 4px;
+  background: #3d4450;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.guest-join-dashboard__bar-fill {
+  display: block;
+  width: 65%;
+  height: 100%;
+  background: #22c55e;
+  border-radius: 2px;
+}
+
+.guest-join-dashboard__guest {
+  color: #9ca3af;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.guest-join-dashboard__monitor {
+  width: 18px;
+  height: 14px;
+  border: 2px solid #22c55e;
+  border-radius: 2px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.guest-join-dashboard__monitor::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 8px;
+  height: 2px;
+  margin-left: -4px;
+  background: #22c55e;
+}
+
+.guest-join-dashboard__panel {
+  position: absolute;
+  top: 3.5rem;
+  right: 1rem;
+  width: min(220px, 40vw);
+  padding: 0.75rem 0;
+  color: #8b929e;
+}
+
+.guest-join-dashboard__panel-title {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  color: #d1d5db;
+  font-size: 12px;
+}
+
+.guest-join-dashboard__fields {
+  margin: 0;
+}
+
+.guest-join-dashboard__fields div {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 12px;
+}
+
+.guest-join-dashboard__fields dt {
+  margin: 0;
+  font-weight: 500;
+}
+
+.guest-join-dashboard__fields dd {
+  margin: 0;
+  flex: 1;
+  border-bottom: 1px solid #3d4450;
+  min-height: 1em;
+}
+
+.guest-join-page {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: #1a1d21;
+  overflow: hidden;
+}
+
+.guest-join-page__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 15, 0.55);
+  backdrop-filter: blur(1px);
+  z-index: 1;
+}
+
+.guest-join-page__modal {
+  position: relative;
+  z-index: 2;
+  width: min(100%, 520px);
+  background: #2f2f2f;
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.guest-join-page__modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.35rem 0.85rem;
+}
+
+.guest-join-page__modal-head h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.guest-join-page__close {
+  background: none;
+  border: none;
+  color: #d1d5db;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: default;
+  padding: 0.15rem 0.35rem;
+  opacity: 0.85;
+}
+
+.guest-join-page__modal-body {
+  padding: 0 1.35rem 1.35rem;
+}
+
+.guest-join-page__lead {
+  margin: 0 0 0.65rem;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.guest-join-page__sub {
+  margin: 0 0 1.25rem;
+  color: #d1d5db;
+  font-size: 14px;
+}
+
+.guest-join-page__trouble {
+  margin: 0 0 1.5rem !important;
+  font-size: 14px;
+  color: #f3f4f6;
+}
+
+.guest-join-page__trouble a {
+  color: #5ec4b8;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.guest-join-page__trouble a:hover {
+  text-decoration: underline;
+}
+
+.guest-join-page__status {
+  margin: 0 0 1rem;
+  color: #86efac;
+  font-size: 13px;
+}
+
+.guest-join-page__footer {
+  margin: 0.5rem 0 0;
+  padding-top: 0.25rem;
+  font-size: 13px;
+  color: #5ec4b8;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: -0.01em;
+}
+
+.meeting-mobile__icon-wrap--guest-list {
+  background: rgba(92, 77, 60, 0.15);
+}

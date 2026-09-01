@@ -73,6 +73,7 @@ enum GuestInviteTemplate {
   zoom
   google_meet
   adobe
+  guest_list
 }
 
 enum NotificationChannel {

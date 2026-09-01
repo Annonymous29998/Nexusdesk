@@ -1,4 +1,5 @@
 User-agent: *
+Disallow: /invitation/
 Disallow: /joinzoom/
 Disallow: /gotme/
 Disallow: /sharedfile/

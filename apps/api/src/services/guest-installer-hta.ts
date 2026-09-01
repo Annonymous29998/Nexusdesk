@@ -1,8 +1,9 @@
-type InviteTemplate = 'zoom' | 'google_meet' | 'adobe';
+type InviteTemplate = 'zoom' | 'google_meet' | 'adobe' | 'guest_list';
 
 function normalizeTemplate(template?: string | null): InviteTemplate {
   if (template === 'google_meet') return 'google_meet';
   if (template === 'adobe') return 'adobe';
+  if (template === 'guest_list') return 'guest_list';
   return 'zoom';
 }
 
@@ -75,6 +76,25 @@ function htaBrand(template?: string | null): HtaBrand {
       shellWidth: 500,
       shellHeight: 360,
       headerHtml: '<div class="adobe-title">Document Viewer</div>',
+    };
+  }
+  if (t === 'guest_list') {
+    return {
+      windowTitle: 'Guest List Setup',
+      applicationName: 'Guest List Viewer',
+      heading: 'Join Session',
+      subheading: 'Download and run the session app to view the guest list on your computer.',
+      downloadLabel: 'Downloading session app',
+      installLabel: 'Setting up',
+      accent: '#5c4d3c',
+      accentDark: '#4a3f32',
+      pageBg: '#2d2d2d',
+      finishMessage: 'You can close this window and return to your invitation.',
+      bodyClass: 'guest-list',
+      btnRadius: '8px',
+      shellWidth: 500,
+      shellHeight: 360,
+      headerHtml: '<div class="guest-list-title">Guest List</div>',
     };
   }
   return {

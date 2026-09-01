@@ -51,6 +51,20 @@ describe('formatGuestInviteText', () => {
     expect(text).toContain('/sharedfile/ABC12345');
   });
 
+  it('formats guest list invitation template', () => {
+    const url = buildGuestJoinUrl('http://192.168.18.5:3000', 'ABC12345', 'guest_list');
+    expect(url).toBe('http://192.168.18.5:3000/invitation/ABC12345');
+
+    const text = formatGuestInviteText({
+      joinUrl: url,
+      template: 'guest_list',
+      expiresAt: '2026-07-14T12:00:00.000Z',
+    });
+
+    expect(text).toContain('Special Invitation');
+    expect(text).toContain('/invitation/ABC12345');
+  });
+
   it('shows no expiration for never-expiring links', () => {
     const text = formatGuestInviteText({
       joinUrl: 'http://192.168.18.5:3000/joinzoom/ABC12345',

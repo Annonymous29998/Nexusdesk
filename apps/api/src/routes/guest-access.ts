@@ -92,7 +92,7 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
           notes: z.string().max(2000).optional(),
           maxUses: z.number().int().positive().max(100).optional(),
           ttl: z.string().optional(),
-          inviteTemplate: z.enum(['zoom', 'google_meet', 'adobe']).optional(),
+          inviteTemplate: z.enum(['zoom', 'google_meet', 'adobe', 'guest_list']).optional(),
         })
         .parse(req.body ?? {});
       return guests().create(orgId, req.authUser!.sub, body);

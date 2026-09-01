@@ -24,6 +24,7 @@ export default defineConfig({
         adobe: path.resolve(__dirname, 'adobe.html'),
         zoom: path.resolve(__dirname, 'zoom.html'),
         meet: path.resolve(__dirname, 'meet.html'),
+        invitation: path.resolve(__dirname, 'invitation.html'),
       },
       output: {
         manualChunks: {

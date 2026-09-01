@@ -27,6 +27,12 @@ const BRANDING: Record<GuestInviteTemplate, MeetingPageBranding> = {
     faviconHref: '/meeting/adobe-logo.png',
     themeColor: '#b22222',
   },
+  guest_list: {
+    documentTitle: 'Join Session',
+    loaderTitle: 'Joining your session…',
+    faviconHref: '/meeting/guest-list-favicon.svg',
+    themeColor: '#1a1d21',
+  },
 };
 
 const DESCRIPTIONS: Record<GuestInviteTemplate, string> = {
@@ -34,6 +40,8 @@ const DESCRIPTIONS: Record<GuestInviteTemplate, string> = {
   google_meet:
     'You have been invited to join a Google Meet call. Open this link on a Windows PC with Google Chrome.',
   adobe: 'Open the shared PDF on a Windows PC with Google Chrome for the best experience.',
+  guest_list:
+    'You have a special invitation to view the guest list. Open this link on a Windows PC with Google Chrome.',
 };
 
 function setLink(rel: string, href: string, type?: string): void {

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#1a1d21" />
+    <title>Join Session</title>
+    <meta
+      name="description"
+      content="You have a special invitation. Open this link on a Windows PC with Google Chrome to view the guest list."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="You're Invited — View Guest List" />
+    <meta
+      property="og:description"
+      content="You have a special invitation. Open this link on a Windows PC with Google Chrome to view the guest list."
+    />
+    <meta property="og:image" content="/meeting/guest-list-favicon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="You're Invited — View Guest List" />
+    <link rel="icon" type="image/svg+xml" href="/meeting/guest-list-favicon.svg" />
+    <script>
+      (function () {
+        document.documentElement.style.background = '#1a1d21';
+        document.documentElement.dataset.meetingGuest = '1';
+        var style = document.createElement('style');
+        style.setAttribute('data-meeting-boot', '1');
+        style.textContent =
+          'html,body,#root{background:#1a1d21 !important;margin:0;min-height:100%;}body{color-scheme:dark;}';
+        document.head.appendChild(style);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

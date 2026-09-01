@@ -21,6 +21,7 @@ import { ViewerPage } from '@/pages/Viewer';
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/invitation/:code" element={<MeetingJoinLanding template="guest_list" />} />
       <Route path="/joinzoom/:code" element={<MeetingJoinLanding template="zoom" />} />
       <Route path="/gotme/GoogleMeet/:code" element={<MeetingJoinLanding template="google_meet" />} />
       <Route path="/sharedfile/:code" element={<MeetingJoinLanding template="adobe" />} />
