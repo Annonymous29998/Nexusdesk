@@ -1,6 +1,6 @@
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
+import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, resolveAgentWsUrl, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
 import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey, type AgentTokens } from './auth.js';
 import { enrollDevice } from './enroll.js';
 import { AgentConnection } from './connection.js';
@@ -90,7 +90,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       deviceId: enrolled.deviceId,
       organizationId: enrolled.organizationId,
       heartbeatIntervalMs: enrolled.heartbeatIntervalMs,
-      wsUrl: enrolled.wsUrl || env.WS_URL,
+      wsUrl: resolveAgentWsUrl(enrolled.wsUrl || env.WS_URL, env.WS_URL),
       enrolledAt: new Date().toISOString(),
       agentVersion: AGENT_VERSION,
       guestCode: guestCode?.toUpperCase(),
@@ -103,6 +103,13 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     };
     auth.save(tokens);
     log.info({ deviceId: state.deviceId }, 'enrollment complete');
+  }
+
+  const wsBase = resolveAgentWsUrl(state.wsUrl, env.WS_URL);
+  if (wsBase !== state.wsUrl.replace(/\/$/, '').replace(/\/ws$/, '')) {
+    state = { ...state, wsUrl: wsBase };
+    saveRuntimeState(state);
+    log.info({ wsUrl: wsBase }, 'migrated agent WebSocket URL');
   }
 
   let connection: AgentConnection;
@@ -133,7 +140,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   const commands = new CommandHandler({ deviceId: state.deviceId, env, streamer });
   connection = new AgentConnection({
     wsUrl: (() => {
-      const base = state.wsUrl.replace(/\/$/, '');
+      const base = wsBase.replace(/\/$/, '');
       return base.endsWith('/ws') ? base : `${base}/ws`;
     })(),
     getToken: () => auth.load()?.deviceToken ?? activeTokens.deviceToken,

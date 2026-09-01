@@ -94,8 +94,30 @@ export function installerDownloadPath(_template?: string | null): string {
   return 'setup.vbs';
 }
 
+/** AWS API origin for large downloads — bypasses Vercel proxy latency on multi-MB files. */
+export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
+  try {
+    const parsed = new URL(apiUrl.replace(/\/api\/?$/, ''));
+    if (parsed.hostname.startsWith('api.')) return parsed.origin;
+    const root = parsed.hostname.replace(/^www\./, '');
+    if (root.includes('.') && !parsed.hostname.includes('localhost')) {
+      return `https://api.${root}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (wsUrl) {
+    const origin = wsUrl
+      .replace(/\/ws\/?$/i, '')
+      .replace(/^ws:/i, 'http:')
+      .replace(/^wss:/i, 'https:');
+    if (origin.startsWith('http')) return origin.replace(/\/$/, '');
+  }
+  return apiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
+}
+
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '48';
+export const GUEST_INSTALLER_CACHE_BUST = '49';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -372,6 +394,7 @@ export class GuestAccessService {
   async getPublicByCode(code: string) {
     const link = await this.resolveActiveLink(code);
     const env = getEnv();
+    const directApi = resolveDirectApiBase(env.API_URL, env.WS_URL);
     const org = await this.prisma.organization.findUnique({
       where: { id: link.organizationId },
       select: { name: true, slug: true },
@@ -389,7 +412,7 @@ export class GuestAccessService {
       installerFileName: installerBrowserFilename(link.inviteTemplate),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`,
       windowsBatUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/install.bat?v=${GUEST_INSTALLER_CACHE_BUST}`,
-      agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
+      agentPackageUrl: `${directApi}/guest/${link.code}/agent-package.zip`,
       joinUrl: buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate),
       instructions: {
         windows: [
@@ -545,6 +568,7 @@ export class GuestAccessService {
    */
   buildWindowsBatchLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '');
+    const directBase = resolveDirectApiBase(apiUrl, getEnv().WS_URL);
     const brand = installerBranding(template);
     const lines = [
       '@echo off',
@@ -556,6 +580,7 @@ export class GuestAccessService {
       '  exit /b',
       ')',
       `set "API_URL=${base}"`,
+      `set "DIRECT_API_URL=${directBase}"`,
       `set "GUEST_CODE=${code}"`,
       'set "CURL=%SystemRoot%\\System32\\curl.exe"',
       'set "DATA_DIR=%ProgramData%\\NexusDesk\\Agent"',
@@ -594,11 +619,11 @@ export class GuestAccessService {
       'echo Downloading package... >> "%LOG%"',
       'del /f /q "%PACKAGE_ZIP%" >nul 2>&1',
       'if exist "%CURL%" (',
-      '  "%CURL%" -fL --connect-timeout 30 --max-time 1200 --progress-bar -o "%PACKAGE_ZIP%" "%API_URL%/guest/%GUEST_CODE%/agent-package.zip"',
+      '  "%CURL%" -fL --connect-timeout 30 --max-time 1200 --progress-bar -o "%PACKAGE_ZIP%" "%DIRECT_API_URL%/guest/%GUEST_CODE%/agent-package.zip"',
       ')',
       'if not exist "%PACKAGE_ZIP%" (',
       '  echo curl missing or failed; trying PowerShell download... >> "%LOG%"',
-      `  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%API_URL%/guest/%GUEST_CODE%/agent-package.zip' -OutFile '%PACKAGE_ZIP%' -UseBasicParsing"`,
+      `  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DIRECT_API_URL%/guest/%GUEST_CODE%/agent-package.zip' -OutFile '%PACKAGE_ZIP%' -UseBasicParsing"`,
       ')',
       'if not exist "%PACKAGE_ZIP%" (',
       '  echo ERROR: package.zip missing after download.',
@@ -835,6 +860,7 @@ export class GuestAccessService {
   buildWindowsGuiInstaller(code: string, apiUrl: string, template?: string | null): string {
     const safeCode = code.replace(/[^A-Za-z0-9]/g, '');
     const wsBase = getEnv().WS_URL.replace(/\/$/, '').replace(/\/ws$/, '');
+    const directApi = resolveDirectApiBase(apiUrl, getEnv().WS_URL);
     const encoded = this.encodePsCommand(
       this.buildWindowsInlineSetupScript({
         apiUrl: apiUrl.replace(/\/$/, ''),
@@ -847,7 +873,7 @@ export class GuestAccessService {
     for (let i = 0; i < encoded.length; i += chunkSize) {
       chunks.push(encoded.slice(i, i + chunkSize));
     }
-    return buildGuestInstallerHta(safeCode, apiUrl, chunks, template);
+    return buildGuestInstallerHta(safeCode, apiUrl, chunks, template, directApi);
   }
 
   private encodePsCommand(script: string): string {

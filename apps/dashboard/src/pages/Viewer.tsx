@@ -38,8 +38,18 @@ export function ViewerPage() {
   const frameImgRef = useRef<HTMLImageElement>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
-  const lastMoveRef = useRef(0);
+  const streamingRef = useRef(false);
+  const pendingMoveRef = useRef<{ x: number; y: number; button: 'left' | 'right' | 'middle' } | null>(null);
+  const moveRafRef = useRef<number | null>(null);
   const minimizingRef = useRef(false);
+
+  const flushPointerMove = () => {
+    moveRafRef.current = null;
+    const pending = pendingMoveRef.current;
+    const client = clientRef.current;
+    if (!pending || !client || !streamingRef.current) return;
+    client.sendInput({ kind: 'mouse-move', x: pending.x, y: pending.y, button: pending.button });
+  };
 
   const sendPointer = (
     e: React.MouseEvent | React.PointerEvent,
@@ -53,13 +63,20 @@ export function ViewerPage() {
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     setLocalPointer({ x, y });
-    if (kind === 'mouse-move') {
-      const now = Date.now();
-      if (now - lastMoveRef.current < 16) return;
-      lastMoveRef.current = now;
-    }
     const button =
       'button' in e && e.button === 2 ? 'right' : 'button' in e && e.button === 1 ? 'middle' : 'left';
+    if (kind === 'mouse-move') {
+      pendingMoveRef.current = { x, y, button };
+      if (moveRafRef.current === null) {
+        moveRafRef.current = requestAnimationFrame(flushPointerMove);
+      }
+      return;
+    }
+    if (moveRafRef.current !== null) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = null;
+    }
+    pendingMoveRef.current = null;
     client.sendInput({ kind, x, y, button });
   };
 
@@ -96,6 +113,7 @@ export function ViewerPage() {
       sessionId,
       deviceId,
       onStatus: (s, d) => {
+        streamingRef.current = s === 'streaming';
         setStatus(s);
         setDetail(d);
       },

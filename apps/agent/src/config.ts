@@ -129,4 +129,18 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.10';
+export const AGENT_VERSION = '0.1.11';
+
+/** Prefer env WS_URL and migrate away from Vercel-proxied frontend WebSocket hosts. */
+export function resolveAgentWsUrl(stateWsUrl: string, envWsUrl: string): string {
+  const fromEnv = envWsUrl.replace(/\/$/, '').replace(/\/ws$/, '');
+  const fromState = stateWsUrl.replace(/\/$/, '').replace(/\/ws$/, '');
+  const pick = fromEnv.startsWith('ws') ? fromEnv : fromState;
+  if (/^wss?:\/\/(www\.)?nesuxdesk\.xyz$/i.test(pick)) {
+    return 'wss://api.nesuxdesk.xyz';
+  }
+  if (fromEnv.startsWith('ws') && fromEnv !== fromState) {
+    return fromEnv;
+  }
+  return pick;
+}

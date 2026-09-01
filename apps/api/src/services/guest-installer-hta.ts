@@ -126,8 +126,10 @@ export function buildGuestInstallerHta(
   apiUrl: string,
   encodedPsChunks: string[],
   template?: string | null,
+  downloadApiUrl?: string,
 ): string {
   const base = apiUrl.replace(/\/$/, '').replace(/\\/g, '\\\\').replace(/"/g, '');
+  const downloadBase = (downloadApiUrl ?? apiUrl).replace(/\/$/, '').replace(/\\/g, '\\\\').replace(/"/g, '');
   const safeCode = code.replace(/[^A-Za-z0-9]/g, '');
   const brand = htaBrand(template);
   const chunkJs = encodedPsChunks.map((c) => JSON.stringify(c)).join(',\n');
@@ -209,6 +211,7 @@ export function buildGuestInstallerHta(
 </style>
 <script language="JScript">
 var API_URL = "${base}";
+var DOWNLOAD_URL = "${downloadBase}";
 var GUEST_CODE = "${safeCode}";
 var CHUNKS = [${chunkJs}];
 var DOWNLOAD_LABEL = "${brand.downloadLabel}";
@@ -327,7 +330,7 @@ function headContentLength(url) {
   return isNaN(len) ? 0 : len;
 }
 function downloadPackage(dest, done) {
-  var url = API_URL + "/guest/" + GUEST_CODE + "/agent-package.zip";
+  var url = DOWNLOAD_URL + "/guest/" + GUEST_CODE + "/agent-package.zip";
   var total = 0;
   try { total = headContentLength(url); } catch (e1) { total = 0; }
   if (fso().FileExists(dest)) { try { fso().DeleteFile(dest, true); } catch (e2) {} }
