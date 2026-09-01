@@ -120,7 +120,10 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   });
   const commands = new CommandHandler({ deviceId: state.deviceId, env, streamer });
   connection = new AgentConnection({
-    wsUrl: state.wsUrl.replace(/\/$/, '') + '/ws',
+    wsUrl: (() => {
+      const base = state.wsUrl.replace(/\/$/, '');
+      return base.endsWith('/ws') ? base : `${base}/ws`;
+    })(),
     getToken: () => auth.load()?.deviceToken ?? tokens!.deviceToken,
     maxReconnectDelayMs: env.AGENT_MAX_RECONNECT_DELAY_MS,
     onCommand: (command) => commands.handle(command),

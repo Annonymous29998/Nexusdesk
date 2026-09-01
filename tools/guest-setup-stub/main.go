@@ -48,6 +48,18 @@ func (c config) brand() string {
 	return c.title()
 }
 
+// deriveWsBaseURL converts API_URL to the WS base the agent expects (agent appends /ws).
+func deriveWsBaseURL(api string) string {
+	base := strings.TrimSpace(api)
+	base = strings.TrimSuffix(base, "/")
+	if strings.HasSuffix(strings.ToLower(base), "/api") {
+		base = base[:len(base)-4]
+	}
+	ws := strings.Replace(base, "https://", "wss://", 1)
+	ws = strings.Replace(ws, "http://", "ws://", 1)
+	return strings.TrimSuffix(ws, "/ws")
+}
+
 func (c config) accent() string {
 	if strings.TrimSpace(c.Accent) != "" {
 		return c.Accent
@@ -201,8 +213,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 		}
 	}
 
-	wsURL := strings.Replace(api, "https://", "wss://", 1)
-	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	wsURL := deriveWsBaseURL(api)
 	envFile := filepath.Join(dataDir, "agent.env")
 	envBody := strings.Join([]string{
 		"API_URL=" + api,
@@ -252,7 +263,7 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 
 	progress(90, "Finishing setup...")
 	stateFile := filepath.Join(dataDir, "state.json")
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(180 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
 		pct := 90 + (i / 5)
 		if pct > 98 {

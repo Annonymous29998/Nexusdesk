@@ -213,8 +213,28 @@ export class DevicesService {
     }
 
     if (guestLinkId) {
-      await guestAccess.consume(guestLinkId, device.id);
+      const link = await this.prisma.guestAccessLink.findUnique({ where: { id: guestLinkId } });
+      const sameDeviceReinstall =
+        Boolean(existing) &&
+        Boolean(link) &&
+        (link!.lastClaimedDeviceId === existing!.id ||
+          (existing!.metadata as Record<string, unknown> | null)?.guestLinkId === guestLinkId);
+      if (!sameDeviceReinstall) {
+        await guestAccess.consume(guestLinkId, device.id);
+      } else {
+        await this.prisma.guestAccessLink.update({
+          where: { id: guestLinkId },
+          data: { lastClaimedDeviceId: device.id },
+        });
+      }
     }
+
+    const wsBase = env.WS_URL.replace(/\/$/, '').replace(/\/ws$/, '');
+    const apiBase = env.API_URL.replace(/\/$/, '').replace(/\/api$/, '');
+    const derivedWs =
+      wsBase.startsWith('ws')
+        ? wsBase
+        : apiBase.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
 
     const agent = createAgentToken({ deviceId: device.id, organizationId: org.id });
     await this.deviceTokens.create({
@@ -248,7 +268,7 @@ export class DevicesService {
       deviceToken: agent.token,
       refreshToken: refresh.token,
       heartbeatIntervalMs: DEFAULT_AGENT_SETTINGS.heartbeatIntervalMs,
-      wsUrl: env.WS_URL,
+      wsUrl: derivedWs,
     };
   }
 

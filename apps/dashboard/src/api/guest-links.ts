@@ -36,6 +36,7 @@ export interface PublicGuestLink {
   windowsInstallerUrl: string;
   installerFileName?: string;
   windowsScriptUrl?: string;
+  windowsBatUrl?: string;
   agentPackageUrl: string;
   joinUrl: string;
   instructions: { windows: string[] };

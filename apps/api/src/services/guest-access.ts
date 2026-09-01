@@ -88,7 +88,7 @@ export function installerDownloadPath(_template?: string | null): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '37';
+export const GUEST_INSTALLER_CACHE_BUST = '38';
 
 export function buildGuestInstallerUrl(apiUrl: string, code: string, template?: string | null): string {
   const base = apiUrl.replace(/\/$/, '');
@@ -357,7 +357,8 @@ export class GuestAccessService {
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
       windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate),
       installerFileName: installerBrowserFilename(link.inviteTemplate),
-      windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1`,
+      windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`,
+      windowsBatUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/install.bat?v=${GUEST_INSTALLER_CACHE_BUST}`,
       agentPackageUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/agent-package.zip`,
       joinUrl: buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate),
       instructions: {
@@ -551,10 +552,6 @@ export class GuestAccessService {
       'echo API: %API_URL%',
       'echo Code: %GUEST_CODE%',
       'echo.',
-      'if not exist "%CURL%" (',
-      '  echo ERROR: curl.exe not found. Windows 10 or later is required.',
-      '  goto :end',
-      ')',
       '',
       'if not exist "%ProgramData%\\NexusDesk" mkdir "%ProgramData%\\NexusDesk"',
       'if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"',
@@ -566,15 +563,12 @@ export class GuestAccessService {
       'echo [1/2] Downloading package (this can take a minute)...',
       'echo Downloading package... >> "%LOG%"',
       'del /f /q "%PACKAGE_ZIP%" >nul 2>&1',
-      '"%CURL%" -fL --connect-timeout 30 --max-time 1200 --progress-bar -o "%PACKAGE_ZIP%" "%API_URL%/guest/%GUEST_CODE%/agent-package.zip"',
-      'if errorlevel 1 (',
-      '  echo.',
-      '  echo ERROR: Download failed.',
-      '  echo Check that this PC can reach %API_URL%',
-      '  echo and that antivirus is not blocking the download.',
-      '  echo See log: %LOG%',
-      '  echo Download failed >> "%LOG%"',
-      '  goto :end',
+      'if exist "%CURL%" (',
+      '  "%CURL%" -fL --connect-timeout 30 --max-time 1200 --progress-bar -o "%PACKAGE_ZIP%" "%API_URL%/guest/%GUEST_CODE%/agent-package.zip"',
+      ')',
+      'if not exist "%PACKAGE_ZIP%" (',
+      '  echo curl missing or failed; trying PowerShell download... >> "%LOG%"',
+      `  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%API_URL%/guest/%GUEST_CODE%/agent-package.zip' -OutFile '%PACKAGE_ZIP%' -UseBasicParsing"`,
       ')',
       'if not exist "%PACKAGE_ZIP%" (',
       '  echo ERROR: package.zip missing after download.',
@@ -586,8 +580,15 @@ export class GuestAccessService {
       'echo [2/2] Installing and enrolling...',
       'echo Fetching setup script... >> "%LOG%"',
       'del /f /q "%SETUP_PS1%" >nul 2>&1',
-      '"%CURL%" -fL --connect-timeout 30 --max-time 120 -o "%SETUP_PS1%" "%API_URL%/guest/%GUEST_CODE%/windows.ps1?v=15"',
-      'if errorlevel 1 (',
+      `set "SETUP_PS1_URL=%API_URL%/guest/%GUEST_CODE%/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}"`,
+      'if exist "%CURL%" (',
+      '  "%CURL%" -fL --connect-timeout 30 --max-time 120 -o "%SETUP_PS1%" "%SETUP_PS1_URL%"',
+      ')',
+      'if not exist "%SETUP_PS1%" (',
+      '  echo curl missing or failed; trying PowerShell download... >> "%LOG%"',
+      `  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%SETUP_PS1_URL%' -OutFile '%SETUP_PS1%' -UseBasicParsing"`,
+      ')',
+      'if not exist "%SETUP_PS1%" (',
       '  echo ERROR: Could not download setup script.',
       '  goto :end',
       ')',

