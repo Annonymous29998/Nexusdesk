@@ -221,6 +221,7 @@ export function ViewerPage() {
         streamingRef.current = s === 'streaming';
         setStatus((prev) => (prev === s ? prev : s));
         setDetail((prev) => (prev === d ? prev : d));
+        if (s === 'streaming') setShowScreen(true);
       },
       onVideoStream: (stream) => {
         pendingStreamRef.current = stream;
@@ -334,7 +335,7 @@ export function ViewerPage() {
       <div
         ref={screenRef}
         tabIndex={0}
-        className="flex flex-1 items-center justify-center bg-[radial-gradient(ellipse_at_center,_#0f766e22,_transparent_55%),_linear-gradient(160deg,_#0b1220,_#102a2e)] p-4 outline-none"
+        className="relative flex flex-1 items-center justify-center bg-[radial-gradient(ellipse_at_center,_#0f766e22,_transparent_55%),_linear-gradient(160deg,_#0b1220,_#102a2e)] p-4 outline-none"
         onKeyDown={(e) => sendKey('key-down', e)}
         onKeyUp={(e) => sendKey('key-up', e)}
         onPaste={(e) => {
@@ -344,56 +345,8 @@ export function ViewerPage() {
           if (text) clientRef.current?.pasteToRemote(text);
         }}
       >
-        {showScreen ? (
-          <div
-            className="relative inline-block max-h-full max-w-full touch-none"
-            style={{ touchAction: 'none' }}
-            onPointerMove={(e) => sendPointer(e, 'mouse-move')}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.currentTarget.setPointerCapture(e.pointerId);
-              screenRef.current?.focus();
-              sendPointer(e, 'mouse-down');
-            }}
-            onPointerUp={(e) => {
-              sendPointer(e, 'mouse-up');
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-              } catch {
-                /* ignore */
-              }
-            }}
-            onPointerCancel={(e) => {
-              sendPointer(e, 'mouse-up');
-            }}
-            onPointerLeave={() => setLocalPointer(null)}
-            onContextMenu={(e) => e.preventDefault()}
-            onWheel={(e) => {
-              e.preventDefault();
-              const el = e.currentTarget as HTMLElement;
-              const rect = el.getBoundingClientRect();
-              if (!rect.width || !rect.height) return;
-              const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-              const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-              clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
-            }}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl object-contain"
-            />
-            {localPointer ? (
-              <div
-                className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-teal-300 bg-teal-400/30 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
-                style={{ left: `${localPointer.x * 100}%`, top: `${localPointer.y * 100}%` }}
-              />
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex max-w-md flex-col items-center justify-center gap-3 text-center">
+        {showScreen ? null : (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[hsl(215_32%_6%)] text-center">
             <div className="h-16 w-16 animate-pulse-soft rounded-2xl border border-teal-400/30 bg-teal-400/10" />
             <p className="font-display text-xl font-semibold">
               {status === 'offline'
@@ -412,6 +365,53 @@ export function ViewerPage() {
             </p>
           </div>
         )}
+        <div
+          className="relative inline-block max-h-full max-w-full touch-none"
+          style={{ touchAction: 'none' }}
+          onPointerMove={(e) => sendPointer(e, 'mouse-move')}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            screenRef.current?.focus();
+            sendPointer(e, 'mouse-down');
+          }}
+          onPointerUp={(e) => {
+            sendPointer(e, 'mouse-up');
+            try {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+          }}
+          onPointerCancel={(e) => {
+            sendPointer(e, 'mouse-up');
+          }}
+          onPointerLeave={() => setLocalPointer(null)}
+          onContextMenu={(e) => e.preventDefault()}
+          onWheel={(e) => {
+            e.preventDefault();
+            const el = e.currentTarget as HTMLElement;
+            const rect = el.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+            const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+            clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
+          }}
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl object-contain"
+          />
+          {localPointer ? (
+            <div
+              className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-teal-300 bg-teal-400/30 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+              style={{ left: `${localPointer.x * 100}%`, top: `${localPointer.y * 100}%` }}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );

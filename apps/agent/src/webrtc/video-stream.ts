@@ -1,4 +1,5 @@
 import { captureScreenFrame } from '../capture/screen.js';
+import type { RawFrame } from '../capture/encoder.js';
 import { createLogger } from '../logger.js';
 import type { IceServerConfig } from './peer.js';
 import { rgbaToI420 } from './i420.js';
@@ -201,14 +202,9 @@ export class WebRtcStreamer {
     this.busy = true;
     try {
       const raw = await captureScreenFrame(this.opts.maxWidth, 60);
-      if (raw.format !== 'rgba' || raw.data.length <= 4) return;
-
-      const width = raw.width & 1 ? raw.width - 1 : raw.width;
-      const height = raw.height & 1 ? raw.height - 1 : raw.height;
-      if (width < 2 || height < 2) return;
-
-      const i420 = rgbaToI420(raw.data, raw.width, raw.height, width, height);
-      const frame = { width, height, data: i420 };
+      const i420 = await this.frameToI420(raw);
+      if (!i420) return;
+      const frame = { width: i420.width, height: i420.height, data: i420.data };
       for (const peer of this.sessions.values()) {
         peer.videoSource.onFrame(frame);
       }
@@ -217,6 +213,43 @@ export class WebRtcStreamer {
     } finally {
       this.busy = false;
     }
+  }
+
+  private async frameToI420(
+    raw: RawFrame,
+  ): Promise<{ width: number; height: number; data: Buffer } | null> {
+    let rgba: Buffer;
+    let srcWidth = raw.width;
+    let srcHeight = raw.height;
+
+    if (raw.format === 'jpeg' || raw.format === 'png') {
+      try {
+        const sharp = (await import('sharp')).default;
+        const decoded = await sharp(raw.data)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        rgba = Buffer.from(decoded.data);
+        srcWidth = decoded.info.width;
+        srcHeight = decoded.info.height;
+      } catch (err) {
+        log.debug({ err }, 'decode capture for WebRTC failed');
+        return null;
+      }
+    } else if (raw.format === 'rgba' && raw.data.length > 4) {
+      rgba = raw.data;
+    } else {
+      return null;
+    }
+
+    const width = srcWidth & ~1;
+    const height = srcHeight & ~1;
+    if (width < 2 || height < 2) return null;
+    return {
+      width,
+      height,
+      data: rgbaToI420(rgba, srcWidth, srcHeight, width, height),
+    };
   }
 
   private async loadWrtc(): Promise<WrtcModule | null> {

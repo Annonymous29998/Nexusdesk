@@ -38,7 +38,10 @@ export function MinimizedViewerDock() {
       orgId: orgId ?? '',
       sessionId: minimized.sessionId,
       deviceId: minimized.deviceId,
-      onStatus: (s) => setStatus(s),
+      onStatus: (s) => {
+        setStatus(s);
+        if (s === 'streaming') setShowScreen(true);
+      },
       onVideoStream: (stream) => {
         pendingStreamRef.current = stream;
         const video = videoRef.current;
@@ -129,16 +132,15 @@ export function MinimizedViewerDock() {
         onClick={restore}
         aria-label="Restore full viewer"
       >
-        {showScreen ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="aspect-video w-full object-contain"
-          />
-        ) : (
-          <div className="flex aspect-video items-center justify-center text-xs text-slate-400">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="aspect-video w-full object-contain"
+        />
+        {showScreen ? null : (
+          <div className="absolute inset-0 flex aspect-video items-center justify-center text-xs text-slate-400">
             Connecting WebRTC…
           </div>
         )}

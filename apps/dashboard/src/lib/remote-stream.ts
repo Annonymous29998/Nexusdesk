@@ -79,9 +79,7 @@ export class RemoteStreamClient {
 
   sendInput(input: InputEvent): void {
     if (this.inputChannel?.readyState === 'open') {
-      this.inputChannel.send(
-        JSON.stringify({ sessionId: this.options.sessionId, ...input }),
-      );
+      this.inputChannel.send(JSON.stringify({ sessionId: this.options.sessionId, ...input }));
       return;
     }
     // DataChannel not open yet — WS fallback only until WebRTC connects.
@@ -168,6 +166,23 @@ export class RemoteStreamClient {
     }
   }
 
+  private deliverVideoFromPeer(pc: RTCPeerConnection): void {
+    const tracks = pc
+      .getReceivers()
+      .map((receiver) => receiver.track)
+      .filter((track): track is MediaStreamTrack => Boolean(track) && track.kind === 'video');
+    if (!tracks.length) {
+      this.markConnected('live (WebRTC)');
+      return;
+    }
+    this.deliverVideo(new MediaStream(tracks));
+  }
+
+  private deliverVideo(stream: MediaStream): void {
+    this.markConnected('live (WebRTC)');
+    this.options.onVideoStream?.(stream);
+  }
+
   private async acceptOffer(sdp: string): Promise<void> {
     if (this.pc || this.closed) return;
 
@@ -196,9 +211,7 @@ export class RemoteStreamClient {
 
     pc.ontrack = (ev) => {
       const stream = ev.streams[0] ?? (ev.track ? new MediaStream([ev.track]) : null);
-      if (!stream) return;
-      this.markConnected('live (WebRTC)');
-      this.options.onVideoStream?.(stream);
+      if (stream) this.deliverVideo(stream);
     };
 
     pc.ondatachannel = (ev) => {
@@ -219,7 +232,7 @@ export class RemoteStreamClient {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
-        this.markConnected('live (WebRTC)');
+        this.deliverVideoFromPeer(pc);
       }
       if (pc.connectionState === 'failed') {
         this.failWebRtc('WebRTC peer connection failed — verify network and TURN credentials.');
