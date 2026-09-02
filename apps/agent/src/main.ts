@@ -154,7 +154,11 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     maxReconnectDelayMs: env.AGENT_MAX_RECONNECT_DELAY_MS,
     onCommand: (command) => commands.handle(command),
     onInput: (data) => {
-      void commands.handleInput(data as unknown as RemoteInputEvent);
+      try {
+        void commands.handleInput(data as unknown as RemoteInputEvent);
+      } catch {
+        /* keep agent alive on bad input */
+      }
     },
   });
 

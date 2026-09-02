@@ -42,8 +42,6 @@ export function ViewerPage() {
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
-  const pendingFrameRef = useRef<string | null>(null);
-  const frameRafRef = useRef<number | null>(null);
   const pendingMoveRef = useRef<{
     x: number;
     y: number;
@@ -227,23 +225,15 @@ export function ViewerPage() {
       deviceId,
       onStatus: (s, d) => {
         streamingRef.current = s === 'streaming';
-        setStatus(s);
-        setDetail(d);
+        setStatus((prev) => (prev === s ? prev : s));
+        setDetail((prev) => (prev === d ? prev : d));
       },
       onFrame: (jpegBase64) => {
-        pendingFrameRef.current = jpegBase64;
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
         }
-        if (frameRafRef.current === null) {
-          frameRafRef.current = requestAnimationFrame(() => {
-            frameRafRef.current = null;
-            const latest = pendingFrameRef.current;
-            pendingFrameRef.current = null;
-            if (latest) frameRef.current?.setFrame(latest);
-          });
-        }
+        frameRef.current?.setFrame(jpegBase64);
       },
       onClipboard: (text) => {
         void applyRemoteClipboard(text);
@@ -256,11 +246,6 @@ export function ViewerPage() {
         clearTimeout(clipboardPullTimerRef.current);
         clipboardPullTimerRef.current = null;
       }
-      if (frameRafRef.current !== null) {
-        cancelAnimationFrame(frameRafRef.current);
-        frameRafRef.current = null;
-      }
-      pendingFrameRef.current = null;
       client.close({ stopStream: !minimizingRef.current });
       clientRef.current = null;
     };
@@ -386,7 +371,7 @@ export function ViewerPage() {
           >
             <RemoteScreenFrame
               ref={frameRef}
-              className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
+              className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl object-contain"
             />
             {localPointer ? (
               <div

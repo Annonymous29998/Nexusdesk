@@ -25,8 +25,6 @@ export function MinimizedViewerDock() {
   const clientRef = useRef<ScreenStreamClient | null>(null);
   const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const gotFirstFrameRef = useRef(false);
-  const pendingFrameRef = useRef<string | null>(null);
-  const frameRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!minimized) {
@@ -43,30 +41,17 @@ export function MinimizedViewerDock() {
       deviceId: minimized.deviceId,
       onStatus: (s) => setStatus(s),
       onFrame: (jpegBase64) => {
-        pendingFrameRef.current = jpegBase64;
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
         }
-        if (frameRafRef.current === null) {
-          frameRafRef.current = requestAnimationFrame(() => {
-            frameRafRef.current = null;
-            const latest = pendingFrameRef.current;
-            pendingFrameRef.current = null;
-            if (latest) frameRef.current?.setFrame(latest);
-          });
-        }
+        frameRef.current?.setFrame(jpegBase64);
       },
     });
     clientRef.current = client;
     client.connect();
 
     return () => {
-      if (frameRafRef.current !== null) {
-        cancelAnimationFrame(frameRafRef.current);
-        frameRafRef.current = null;
-      }
-      pendingFrameRef.current = null;
       client.close();
       if (clientRef.current === client) clientRef.current = null;
     };
