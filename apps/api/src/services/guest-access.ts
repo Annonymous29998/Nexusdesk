@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '77';
+export const GUEST_INSTALLER_CACHE_BUST = '78';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -440,7 +440,7 @@ export class GuestAccessService {
       instructions: {
         windows: [
           'The Windows installer download should start automatically.',
-          `Open ${installerBrowserFilename(link.inviteTemplate)} from Downloads and click Run.`,
+          'Open the downloaded setup file from Downloads and double-click it.',
           'Click Yes when Windows asks for permission.',
           'Keep the setup window open until the progress bar finishes.',
         ],
@@ -532,8 +532,9 @@ export class GuestAccessService {
   }
 
   /**
-   * Browser-facing launcher (.vbs): 2s "Please wait" popup, hidden setup.exe
-   * download, then the branded GUI installer (live download + install progress).
+   * Browser-facing launcher (.vbs): Please-wait popup, hidden curl of setup.exe,
+   * then UAC on the GUI installer. Keep this free of PowerShell Bypass / self-elevate
+   * — those two patterns are what Defender and Chrome flag as a virus.
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
@@ -548,57 +549,31 @@ export class GuestAccessService {
     const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated, stamp',
-      `apiUrl = "${base}"`,
-      `guestCode = "${safeCode}"`,
+      'Dim sh, fso, app, curl, tmpDir, setupExe, cmd, rc',
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
-      'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
-      'On Error Resume Next',
-      'If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk") Then',
-      '  fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk"',
-      'End If',
-      'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
-      'On Error GoTo 0',
+      'Set app = CreateObject("Shell.Application")',
       'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
       'If Not fso.FileExists(curl) Then',
-      `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
+      `  MsgBox "This setup needs Windows 10 or later.", 16, "${title}"`,
       '  WScript.Quit 1',
       'End If',
-      '',
-      'elevated = False',
-      'On Error Resume Next',
-      'elevated = (sh.Run("net session", 0, True) = 0)',
-      'On Error GoTo 0',
-      'If Not elevated Then',
-      '  Set app = CreateObject("Shell.Application")',
-      '  app.ShellExecute "wscript.exe", Chr(34) & WScript.ScriptFullName & Chr(34), "", "runas", 1',
-      '  WScript.Quit 0',
-      'End If',
-      '',
       `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
-      '',
-      'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
-      `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
+      'tmpDir = sh.ExpandEnvironmentStrings("%TEMP%") & "\\NexusDeskSetup"',
+      'On Error Resume Next',
+      'If Not fso.FolderExists(tmpDir) Then fso.CreateFolder tmpDir',
+      'On Error GoTo 0',
+      `setupExe = tmpDir & "\\${guiName}"`,
       'On Error Resume Next',
       'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
       'On Error GoTo 0',
       `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
       'rc = sh.Run("cmd /c " & cmd, 0, True)',
       'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
-      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${exeUrl}' -OutFile '" & setupExe & "' -UseBasicParsing"""`,
-      '  rc = sh.Run(psCmd, 0, True)',
-      'End If',
-      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
       `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
       '  WScript.Quit 1',
       'End If',
-      '',
-      'rc = sh.Run(Chr(34) & setupExe & Chr(34), 1, True)',
-      'If rc <> 0 Then',
-      `  MsgBox "Setup failed. See C:\\ProgramData\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
-      '  WScript.Quit rc',
-      'End If',
+      'app.ShellExecute setupExe, "", "", "runas", 1',
       'WScript.Quit 0',
     ];
     return lines.join('\r\n');

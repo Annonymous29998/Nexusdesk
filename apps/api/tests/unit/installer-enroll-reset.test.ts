@@ -38,9 +38,13 @@ describe('Windows installer enrollment reset', () => {
     expect(vbs).toContain('setup.exe');
     expect(vbs).toContain('curl.exe');
     expect(vbs).toContain('sh.Run("cmd /c " & cmd, 0, True)');
-    expect(vbs).toContain('sh.Run(Chr(34) & setupExe');
+    expect(vbs).toContain('app.ShellExecute setupExe');
     expect(vbs).not.toContain('powershellw.exe');
     expect(vbs).not.toContain('Invoke-AgentInstall');
+    expect(vbs).not.toContain('ExecutionPolicy Bypass');
+    expect(vbs).not.toContain('Invoke-WebRequest');
+    expect(vbs).not.toContain('wscript.exe');
+    expect(vbs).not.toContain('net session');
     expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
   });
 

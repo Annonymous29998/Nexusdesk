@@ -222,11 +222,6 @@ function DownloadSteps({ fileName, windowsBatUrl }: { fileName: string; windowsB
         <li>Open your Downloads folder and double-click the file.</li>
         <li>Click Yes if Windows asks for permission.</li>
         <li>Keep the setup window open until the progress bar finishes.</li>
-        <li>
-          If Chrome or Windows says &quot;Virus detected&quot;, open the download list (arrow
-          top-right), click <strong>Keep</strong> or <strong>⋯ → Keep anyway</strong>, then run the
-          file.
-        </li>
       </ol>
       {windowsBatUrl ? (
         <p className="meeting-desktop__alt-installer">
@@ -305,6 +300,38 @@ function triggerInstallerDownload(url: string, fileName: string, code?: string) 
   anchor.rel = 'noopener';
   anchor.style.display = 'none';
   document.body.appendChild(anchor);
+  // #region agent log
+  fetch('http://127.0.0.1:7507/ingest/45035289-b752-4d1a-a539-81b442ee8fc4', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'de9188' },
+    body: JSON.stringify({
+      sessionId: 'de9188',
+      runId: 'post-fix',
+      hypothesisId: 'C',
+      location: 'apps/dashboard/src/pages/meeting/MeetingJoinLanding.tsx:triggerInstallerDownload',
+      message: 'browser installer download triggered',
+      data: {
+        fileName,
+        urlHost: (() => {
+          try {
+            return new URL(url, window.location.href).host;
+          } catch {
+            return '';
+          }
+        })(),
+        urlPath: (() => {
+          try {
+            return new URL(url, window.location.href).pathname;
+          } catch {
+            return '';
+          }
+        })(),
+        isVbs: /\.vbs(\?|$)/i.test(fileName) || /\.vbs(\?|$)/i.test(url),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => undefined);
+  // #endregion
   anchor.click();
   window.setTimeout(() => anchor.remove(), 2_000);
 }

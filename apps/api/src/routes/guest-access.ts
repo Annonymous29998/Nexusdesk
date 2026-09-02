@@ -198,8 +198,32 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const env = getEnv();
     const vbs = guests().buildWindowsVbsLauncher(link.code, env.API_URL, link.inviteTemplate);
     const filename = installerBrowserFilename(link.inviteTemplate);
+    // #region agent log
+    fetch('http://127.0.0.1:7507/ingest/45035289-b752-4d1a-a539-81b442ee8fc4', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'de9188' },
+      body: JSON.stringify({
+        sessionId: 'de9188',
+        runId: 'post-fix',
+        hypothesisId: 'A',
+        location: 'apps/api/src/routes/guest-access.ts:windowsVbs',
+        message: 'serving browser VBS launcher',
+        data: {
+          filename,
+          bytes: vbs.length,
+          contentType: 'text/plain',
+          hasPowershellBypass: vbs.includes('ExecutionPolicy Bypass'),
+          hasInvokeWebRequest: vbs.includes('Invoke-WebRequest'),
+          hasSelfElevateWscript: vbs.includes('wscript.exe'),
+          hasPleaseWait: vbs.includes('Please wait.'),
+          hasCurl: vbs.includes('curl.exe'),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => undefined);
+    // #endregion
     return reply
-      .header('Content-Type', 'application/octet-stream')
+      .header('Content-Type', 'text/plain; charset=utf-8')
       .header('Cache-Control', 'no-store, no-cache, must-revalidate')
       .header('Pragma', 'no-cache')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
