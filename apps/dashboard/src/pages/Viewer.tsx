@@ -35,6 +35,7 @@ export function ViewerPage() {
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingStreamRef = useRef<MediaStream | null>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
@@ -64,9 +65,7 @@ export function ViewerPage() {
     if (!client || status !== 'streaming') return;
     try {
       const text =
-        navigator.clipboard && window.isSecureContext
-          ? await navigator.clipboard.readText()
-          : '';
+        navigator.clipboard && window.isSecureContext ? await navigator.clipboard.readText() : '';
       if (text) client.pasteToRemote(text);
     } catch {
       /* ignore — user can use toolbar paste later if needed */
@@ -163,10 +162,7 @@ export function ViewerPage() {
     });
   };
 
-  const sendPointer = (
-    e: React.PointerEvent,
-    kind: 'mouse-move' | 'mouse-down' | 'mouse-up',
-  ) => {
+  const sendPointer = (e: React.PointerEvent, kind: 'mouse-move' | 'mouse-down' | 'mouse-up') => {
     const client = clientRef.current;
     const el = e.currentTarget as HTMLElement;
     if (!client || !el || status !== 'streaming') return;
@@ -215,6 +211,7 @@ export function ViewerPage() {
   useEffect(() => {
     if (!sessionId || !deviceId) return;
     gotFirstFrameRef.current = false;
+    pendingStreamRef.current = null;
     setShowScreen(false);
     const client = new RemoteStreamClient({
       orgId: orgId!,
@@ -226,10 +223,13 @@ export function ViewerPage() {
         setDetail((prev) => (prev === d ? prev : d));
       },
       onVideoStream: (stream) => {
+        pendingStreamRef.current = stream;
+        const attach = (video: HTMLVideoElement) => {
+          if (video.srcObject !== stream) video.srcObject = stream;
+          void video.play().catch(() => undefined);
+        };
         const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        void video.play().catch(() => undefined);
+        if (video) attach(video);
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
@@ -250,6 +250,15 @@ export function ViewerPage() {
       clientRef.current = null;
     };
   }, [sessionId, deviceId, orgId]);
+
+  useEffect(() => {
+    if (!showScreen) return;
+    const video = videoRef.current;
+    const stream = pendingStreamRef.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    void video.play().catch(() => undefined);
+  }, [showScreen]);
 
   if (session.isLoading) return <LoadingBlock label="Opening session…" />;
   if (!session.data) {
@@ -395,11 +404,11 @@ export function ViewerPage() {
             </p>
             <p className="text-sm text-slate-400">
               {status === 'offline'
-                ? detail ??
-                  'The agent is not connected. Make sure the support app is running on the remote PC.'
+                ? (detail ??
+                  'The agent is not connected. Make sure the support app is running on the remote PC.')
                 : detail?.startsWith('capture:')
                   ? detail.replace(/^capture:\s*/, 'Screen capture failed: ')
-                  : detail ?? 'Waiting for the first frame from the remote agent.'}
+                  : (detail ?? 'Waiting for the first frame from the remote agent.')}
             </p>
           </div>
         )}

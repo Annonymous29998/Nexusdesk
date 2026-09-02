@@ -20,6 +20,7 @@ export function MinimizedViewerDock() {
   const [showScreen, setShowScreen] = useState(false);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingStreamRef = useRef<MediaStream | null>(null);
   const gotFirstFrameRef = useRef(false);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export function MinimizedViewerDock() {
       clientRef.current?.close();
       clientRef.current = null;
       gotFirstFrameRef.current = false;
+      pendingStreamRef.current = null;
       setShowScreen(false);
       setStatus('idle');
       return;
@@ -38,10 +40,12 @@ export function MinimizedViewerDock() {
       deviceId: minimized.deviceId,
       onStatus: (s) => setStatus(s),
       onVideoStream: (stream) => {
+        pendingStreamRef.current = stream;
         const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        void video.play().catch(() => undefined);
+        if (video) {
+          video.srcObject = stream;
+          void video.play().catch(() => undefined);
+        }
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
@@ -56,6 +60,15 @@ export function MinimizedViewerDock() {
       if (clientRef.current === client) clientRef.current = null;
     };
   }, [minimized?.sessionId, minimized?.deviceId, orgId]);
+
+  useEffect(() => {
+    if (!showScreen) return;
+    const video = videoRef.current;
+    const stream = pendingStreamRef.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    void video.play().catch(() => undefined);
+  }, [showScreen]);
 
   if (!minimized) return null;
 
