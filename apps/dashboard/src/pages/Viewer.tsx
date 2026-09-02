@@ -41,7 +41,12 @@ export function ViewerPage() {
   const streamingRef = useRef(false);
   const pendingFrameRef = useRef<string | null>(null);
   const frameRafRef = useRef<number | null>(null);
-  const pendingMoveRef = useRef<{ x: number; y: number; button: 'left' | 'right' | 'middle' } | null>(null);
+  const pendingMoveRef = useRef<{
+    x: number;
+    y: number;
+    button: 'left' | 'right' | 'middle';
+    buttons: number;
+  } | null>(null);
   const moveRafRef = useRef<number | null>(null);
   const minimizingRef = useRef(false);
   const clipboardPullTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +93,8 @@ export function ViewerPage() {
       return;
     }
 
+    if (kind === 'key-down' && e.key === 'Dead') return;
+
     if (isCopy) {
       e.preventDefault();
       if (kind === 'key-down') {
@@ -114,10 +121,16 @@ export function ViewerPage() {
     if (e.metaKey && !e.ctrlKey && kind === 'key-down') {
       client.sendInput({ kind: 'key-down', key: 'Control' });
     }
-    client.sendInput({ kind, key: e.key, code: e.code });
+    client.sendInput({ kind, key: e.key, code: e.code || undefined });
     if (e.metaKey && !e.ctrlKey && kind === 'key-up' && e.key !== 'Control') {
       client.sendInput({ kind: 'key-up', key: 'Control' });
     }
+  };
+
+  const pointerButton = (e: React.PointerEvent): 'left' | 'right' | 'middle' => {
+    if (e.buttons & 2 || e.button === 2) return 'right';
+    if (e.buttons & 4 || e.button === 1) return 'middle';
+    return 'left';
   };
 
   const flushPointerMove = () => {
@@ -125,11 +138,17 @@ export function ViewerPage() {
     const pending = pendingMoveRef.current;
     const client = clientRef.current;
     if (!pending || !client || !streamingRef.current) return;
-    client.sendInput({ kind: 'mouse-move', x: pending.x, y: pending.y, button: pending.button });
+    client.sendInput({
+      kind: 'mouse-move',
+      x: pending.x,
+      y: pending.y,
+      button: pending.button,
+      buttons: pending.buttons,
+    });
   };
 
   const sendPointer = (
-    e: React.MouseEvent | React.PointerEvent,
+    e: React.PointerEvent,
     kind: 'mouse-move' | 'mouse-down' | 'mouse-up',
   ) => {
     const client = clientRef.current;
@@ -140,10 +159,10 @@ export function ViewerPage() {
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     setLocalPointer({ x, y });
-    const button =
-      'button' in e && e.button === 2 ? 'right' : 'button' in e && e.button === 1 ? 'middle' : 'left';
+    const button = pointerButton(e);
+    const buttons = e.buttons;
     if (kind === 'mouse-move') {
-      pendingMoveRef.current = { x, y, button };
+      pendingMoveRef.current = { x, y, button, buttons };
       if (moveRafRef.current === null) {
         moveRafRef.current = requestAnimationFrame(flushPointerMove);
       }
@@ -154,7 +173,7 @@ export function ViewerPage() {
       moveRafRef.current = null;
     }
     pendingMoveRef.current = null;
-    client.sendInput({ kind, x, y, button });
+    client.sendInput({ kind, x, y, button, buttons });
   };
 
   const session = useQuery({
@@ -320,39 +339,45 @@ export function ViewerPage() {
         }}
       >
         {showScreen ? (
-          <div className="relative inline-block max-h-full max-w-full">
+          <div
+            className="relative inline-block max-h-full max-w-full touch-none"
+            style={{ touchAction: 'none' }}
+            onPointerMove={(e) => sendPointer(e, 'mouse-move')}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              screenRef.current?.focus();
+              sendPointer(e, 'mouse-down');
+            }}
+            onPointerUp={(e) => {
+              sendPointer(e, 'mouse-up');
+              try {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              } catch {
+                /* ignore */
+              }
+            }}
+            onPointerCancel={(e) => {
+              sendPointer(e, 'mouse-up');
+            }}
+            onPointerLeave={() => setLocalPointer(null)}
+            onContextMenu={(e) => e.preventDefault()}
+            onWheel={(e) => {
+              e.preventDefault();
+              const el = e.currentTarget as HTMLElement;
+              const rect = el.getBoundingClientRect();
+              if (!rect.width || !rect.height) return;
+              const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+              const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+              clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
+            }}
+          >
             <img
               ref={frameImgRef}
               src={initialFrame ?? undefined}
               alt="Remote screen"
-              className="max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
+              className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
               draggable={false}
-              onPointerMove={(e) => sendPointer(e, 'mouse-move')}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                screenRef.current?.focus();
-                sendPointer(e, 'mouse-down');
-              }}
-              onPointerUp={(e) => {
-                try {
-                  (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-                } catch {
-                  /* ignore */
-                }
-                sendPointer(e, 'mouse-up');
-              }}
-              onPointerLeave={() => setLocalPointer(null)}
-              onContextMenu={(e) => e.preventDefault()}
-              onWheel={(e) => {
-                e.preventDefault();
-                const el = e.currentTarget as HTMLElement;
-                const rect = el.getBoundingClientRect();
-                if (!rect.width || !rect.height) return;
-                const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-                clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
-              }}
             />
             {localPointer ? (
               <div

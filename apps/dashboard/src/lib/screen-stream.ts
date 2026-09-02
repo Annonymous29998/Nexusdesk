@@ -35,6 +35,8 @@ export interface InputEvent {
   x?: number;
   y?: number;
   button?: 'left' | 'right' | 'middle';
+  /** Pointer buttons bitmask (1=left, 2=right, 4=middle) while held during drag. */
+  buttons?: number;
   deltaY?: number;
   key?: string;
   code?: string;

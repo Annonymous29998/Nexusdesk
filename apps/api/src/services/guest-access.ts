@@ -113,7 +113,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '55';
+export const GUEST_INSTALLER_CACHE_BUST = '56';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,

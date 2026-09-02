@@ -13,12 +13,17 @@ let screenSize: { width: number; height: number } | null = null;
 let winApi: WinApi | null = null;
 let winApiFailed = false;
 let loggedInject = false;
+let leftHeld = false;
+let rightHeld = false;
+let middleHeld = false;
 
 export interface RemoteInputEvent {
   kind: string;
   x?: number;
   y?: number;
   button?: string;
+  /** Pointer buttons bitmask (1=left, 2=right, 4=middle). */
+  buttons?: number;
   deltaY?: number;
   key?: string;
   code?: string;
@@ -141,6 +146,28 @@ const CODE_TO_VK: Record<string, number> = (() => {
   map.AltRight = 0x12;
   map.MetaLeft = 0x5b;
   map.MetaRight = 0x5c;
+  map.Backquote = 0xc0;
+  map.Minus = 0xbd;
+  map.Equal = 0xbb;
+  map.BracketLeft = 0xdb;
+  map.BracketRight = 0xdd;
+  map.Backslash = 0xdc;
+  map.IntlBackslash = 0xdc;
+  map.Semicolon = 0xba;
+  map.Quote = 0xde;
+  map.Comma = 0xbc;
+  map.Period = 0xbe;
+  map.Slash = 0xbf;
+  map.Space = 0x20;
+  map.NumpadEnter = 0x0d;
+  map.NumpadAdd = 0x6b;
+  map.NumpadSubtract = 0x6d;
+  map.NumpadMultiply = 0x6a;
+  map.NumpadDivide = 0x6f;
+  map.NumpadDecimal = 0x6e;
+  for (let i = 0; i <= 9; i++) {
+    map[`Numpad${i}`] = 0x60 + i;
+  }
   return map;
 })();
 
@@ -162,6 +189,33 @@ const MOUSEEVENTF_MIDDLEDOWN = 0x0020;
 const MOUSEEVENTF_MIDDLEUP = 0x0040;
 const MOUSEEVENTF_WHEEL = 0x0800;
 const MOUSEEVENTF_ABSOLUTE = 0x8000;
+
+function syncHeldButtons(event: RemoteInputEvent): void {
+  if (event.kind === 'mouse-down') {
+    if (event.button === 'right') rightHeld = true;
+    else if (event.button === 'middle') middleHeld = true;
+    else leftHeld = true;
+    return;
+  }
+  if (event.kind === 'mouse-up') {
+    if (event.button === 'right') rightHeld = false;
+    else if (event.button === 'middle') middleHeld = false;
+    else leftHeld = false;
+  }
+}
+
+function isPointerDragging(event: RemoteInputEvent): boolean {
+  if (event.buttons !== undefined && event.buttons > 0) return true;
+  return leftHeld || rightHeld || middleHeld;
+}
+
+function dragMouseFlags(): number {
+  let flags = MOUSEEVENTF_MOVE;
+  if (leftHeld) flags |= MOUSEEVENTF_LEFTDOWN;
+  if (rightHeld) flags |= MOUSEEVENTF_RIGHTDOWN;
+  if (middleHeld) flags |= MOUSEEVENTF_MIDDLEDOWN;
+  return flags;
+}
 
 async function loadWinApi(): Promise<WinApi | null> {
   if (winApi) return winApi;
@@ -222,6 +276,9 @@ export async function onRemoteSessionStart(): Promise<void> {
 }
 
 export async function onRemoteSessionEnd(): Promise<void> {
+  leftHeld = false;
+  rightHeld = false;
+  middleHeld = false;
   if (platform() === 'win32') await showSystemCursor();
 }
 
@@ -229,11 +286,15 @@ async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): 
   const api = await loadWinApi();
   if (!api) return false;
 
-  if (event.kind === 'mouse-move' || event.kind === 'mouse-down' || event.kind === 'mouse-up') {
-    absoluteMove(api, px, py);
-  }
+  syncHeldButtons(event);
 
-  if (event.kind === 'mouse-down' || event.kind === 'mouse-up') {
+  if (event.kind === 'mouse-move') {
+    absoluteMove(api, px, py);
+    if (isPointerDragging(event)) {
+      api.mouse_event(dragMouseFlags(), 0, 0, 0, 0);
+    }
+  } else if (event.kind === 'mouse-down' || event.kind === 'mouse-up') {
+    absoluteMove(api, px, py);
     const down = event.kind === 'mouse-down';
     const btn = event.button ?? 'left';
     const flag =
@@ -263,6 +324,8 @@ async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): 
     if (vk !== undefined) {
       const flags = event.kind === 'key-up' ? 0x0002 : 0;
       api.keybd_event(vk, 0, flags, 0);
+    } else if (event.code) {
+      log.debug({ key: event.key, code: event.code }, 'unmapped key — skipped');
     }
   }
 
@@ -313,7 +376,8 @@ export async function prepareWindowsInput(): Promise<void> {
 /** Apply a normalised remote input event from the technician viewer. */
 export async function handleRemoteInput(event: RemoteInputEvent): Promise<void> {
   if (locked) return;
-  if (stealthInput && event.kind === 'mouse-move') return;
+  syncHeldButtons(event);
+  if (stealthInput && event.kind === 'mouse-move' && !isPointerDragging(event)) return;
   const { width, height } = await getScreenSize();
   const px = Math.max(0, Math.min(width - 1, Math.round((event.x ?? 0) * width)));
   const py = Math.max(0, Math.min(height - 1, Math.round((event.y ?? 0) * height)));

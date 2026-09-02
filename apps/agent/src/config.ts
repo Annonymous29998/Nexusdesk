@@ -129,7 +129,7 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.13';
+export const AGENT_VERSION = '0.1.14';
 
 /** Prefer env WS_URL and migrate away from Vercel-proxied frontend WebSocket hosts. */
 export function resolveAgentWsUrl(stateWsUrl: string, envWsUrl: string): string {
