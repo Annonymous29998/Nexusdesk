@@ -35,11 +35,9 @@ describe('Windows installer enrollment reset', () => {
     const vbs = service.buildWindowsVbsLauncher('FF9A496P', 'http://192.168.18.5:4000', 'zoom');
 
     expect(vbs).toContain('agent-package.zip');
-    expect(vbs).toContain('nd-install-');
-    expect(vbs).not.toContain('setupExe');
+    expect(vbs).toContain('windows.ps1');
+    expect(vbs).not.toContain('Invoke-AgentInstall');
     expect(vbs).toContain('powershellw.exe');
-    expect(vbs).toContain('sh.Run(psCmd, 1, False)');
-    expect(vbs).not.toMatch(/sh\.Run\([^)]*-WindowStyle Hidden/i);
     expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
   });
 
