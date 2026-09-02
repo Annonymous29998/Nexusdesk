@@ -12,28 +12,44 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.get(
     API_ROUTES.sessions.root,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.Session, PermissionAction.Read)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.Session, PermissionAction.Read),
+      ],
+    },
     async (req) => {
       const { orgId } = req.params as { orgId: string };
-      const q = z.object({
-        page: z.coerce.number().int().positive().optional(),
-        pageSize: z.coerce.number().int().positive().max(100).optional(),
-      }).parse(req.query);
+      const q = z
+        .object({
+          page: z.coerce.number().int().positive().optional(),
+          pageSize: z.coerce.number().int().positive().max(100).optional(),
+        })
+        .parse(req.query);
       return sessions().list(orgId, q.page, q.pageSize);
     },
   );
 
   app.post(
     API_ROUTES.sessions.root,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.Session, PermissionAction.Create)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.Session, PermissionAction.Create),
+      ],
+    },
     async (req) => {
       const { orgId } = req.params as { orgId: string };
-      const body = z.object({
-        deviceId: z.string().uuid(),
-        mode: z.nativeEnum(RemoteConnectionMode).optional(),
-        notes: z.string().nullable().optional(),
-        recordingEnabled: z.boolean().optional(),
-      }).parse(req.body);
+      const body = z
+        .object({
+          deviceId: z.string().uuid(),
+          mode: z.nativeEnum(RemoteConnectionMode).optional(),
+          notes: z.string().nullable().optional(),
+          recordingEnabled: z.boolean().optional(),
+        })
+        .parse(req.body);
       return sessions().create({
         organizationId: orgId,
         deviceId: body.deviceId,
@@ -48,7 +64,13 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.get(
     API_ROUTES.sessions.byId,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.Session, PermissionAction.Read)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.Session, PermissionAction.Read),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId } = req.params as { orgId: string; sessionId: string };
       return sessions().get(orgId, sessionId);
@@ -57,7 +79,13 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.post(
     API_ROUTES.sessions.end,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.Session, PermissionAction.Update)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.Session, PermissionAction.Update),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId } = req.params as { orgId: string; sessionId: string };
       const body = z.object({ reason: z.string().optional() }).parse(req.body ?? {});
@@ -67,7 +95,13 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.patch(
     API_ROUTES.sessions.byId,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.Session, PermissionAction.Update)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.Session, PermissionAction.Update),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId } = req.params as { orgId: string; sessionId: string };
       const body = z.object({ notes: z.string() }).parse(req.body);
@@ -77,13 +111,21 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.post(
     '/organizations/:orgId/sessions/:sessionId/join',
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.RemoteConnection, PermissionAction.Create)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.RemoteConnection, PermissionAction.Create),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId } = req.params as { orgId: string; sessionId: string };
-      const body = z.object({
-        mode: z.nativeEnum(RemoteConnectionMode).optional(),
-        peerId: z.string().optional(),
-      }).parse(req.body ?? {});
+      const body = z
+        .object({
+          mode: z.nativeEnum(RemoteConnectionMode).optional(),
+          peerId: z.string().optional(),
+        })
+        .parse(req.body ?? {});
       return sessions().join({
         sessionId,
         organizationId: orgId,
@@ -96,7 +138,13 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.get(
     API_ROUTES.connections.root,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read),
+      ],
+    },
     async (req) => {
       const { sessionId } = req.params as { sessionId: string };
       return sessions().listConnections(sessionId);
@@ -105,10 +153,18 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.get(
     API_ROUTES.connections.byId,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId, connectionId } = req.params as {
-        orgId: string; sessionId: string; connectionId: string;
+        orgId: string;
+        sessionId: string;
+        connectionId: string;
       };
       const conn = await sessions().getConnection(orgId, sessionId, connectionId);
       if (!conn) throw AppError.notFound('Connection not found');
@@ -118,11 +174,17 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   app.get(
     API_ROUTES.connections.turn,
-    { preHandler: [requireAuth, requireOrgAccess(), requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read)] },
+    {
+      preHandler: [
+        requireAuth,
+        requireOrgAccess(),
+        requirePermission(PermissionResource.RemoteConnection, PermissionAction.Read),
+      ],
+    },
     async (req) => {
       const { orgId, sessionId } = req.params as { orgId: string; sessionId: string };
       await sessions().get(orgId, sessionId);
-      return sessions().turnCredentials(orgId, sessionId);
+      return sessions().turnCredentials(orgId, sessionId, req.authUser!.sub);
     },
   );
 }

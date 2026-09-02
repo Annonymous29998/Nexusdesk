@@ -173,7 +173,10 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       }
     },
     onVideoReady: (sessionId) => {
-      streamer.stop(sessionId, { keepInputSession: true });
+      commandHandler.markWebrtcHealthy(sessionId);
+    },
+    onFailed: (sessionId) => {
+      commandHandler.markWebrtcFailed(sessionId);
     },
   });
   const commandHandler: CommandHandler = new CommandHandler({
@@ -211,6 +214,10 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       if (!sessionId || !webrtc) return;
       if (event === WS_EVENTS.signalAnswer && typeof data.sdp === 'string') {
         void webrtc.handleAnswer(sessionId, data.sdp);
+        return;
+      }
+      if (event === WS_EVENTS.signalRenegotiate) {
+        void webrtc.handleRenegotiate(sessionId);
         return;
       }
       if (event === WS_EVENTS.signalIce && typeof data.candidate === 'string') {

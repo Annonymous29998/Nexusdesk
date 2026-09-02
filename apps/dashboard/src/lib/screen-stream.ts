@@ -20,6 +20,7 @@ export interface ScreenStreamOptions {
   onFrame?: (jpegBase64: string) => void;
   onClipboard?: (text: string) => void;
   onSignal?: (event: string, data: Record<string, unknown>) => void;
+  onScreenMeta?: (data: Record<string, unknown>) => void;
 }
 
 export interface InputEvent {
@@ -108,13 +109,11 @@ export class ScreenStreamClient {
         const captureError =
           typeof msg.data?.captureError === 'string' ? msg.data.captureError : null;
         if (captureError) this.lastCaptureError = captureError;
+        if (msg.data) this.options.onScreenMeta?.(msg.data);
 
         if (online) {
           this.startRetries = 0;
-          this.options.onStatus?.(
-            'waiting',
-            captureError ? `capture: ${captureError}` : undefined,
-          );
+          this.options.onStatus?.('waiting', captureError ? `capture: ${captureError}` : undefined);
         } else {
           this.options.onStatus?.(
             this.startRetries >= 12 ? 'offline' : 'reconnecting',
@@ -134,7 +133,7 @@ export class ScreenStreamClient {
           this.lastCaptureError = null;
           if (!this.streaming) {
             this.streaming = true;
-            this.options.onStatus?.('streaming');
+            this.options.onStatus?.('streaming', 'jpeg-fallback');
           }
           this.options.onFrame?.(image);
         }

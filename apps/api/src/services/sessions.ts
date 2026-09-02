@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { RemoteConnectionMode } from '@nexusdesk/types';
 import { RemoteSessionManager } from '../remote/RemoteSessionManager.js';
 import { RemoteConnectionRepository } from '../repositories/index.js';
-import { getEnv } from '../config/env.js';
+import { buildIceServers } from '../lib/ice-servers.js';
 
 export class SessionsService {
   readonly manager: RemoteSessionManager;
@@ -70,24 +70,14 @@ export class SessionsService {
     });
   }
 
-  turnCredentials(organizationId: string, sessionId: string) {
-    const env = getEnv();
+  turnCredentials(organizationId: string, sessionId: string, viewerId = 'viewer') {
+    const ice = buildIceServers(`viewer:${viewerId}:org:${organizationId}:sess:${sessionId}`);
     return {
       organizationId,
       sessionId,
-      iceServers: [
-        ...env.STUN_URLS.map((url) => ({ urls: url })),
-        ...(env.TURN_URLS.length && env.TURN_USERNAME
-          ? [
-              {
-                urls: env.TURN_URLS,
-                username: env.TURN_USERNAME,
-                credential: env.TURN_CREDENTIAL,
-              },
-            ]
-          : []),
-      ],
-      ttl: env.TURN_CREDENTIAL_TTL,
+      iceServers: ice.iceServers,
+      ttl: ice.ttl,
+      expiresAt: ice.expiresAt,
     };
   }
 }

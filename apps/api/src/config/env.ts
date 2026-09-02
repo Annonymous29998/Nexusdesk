@@ -37,7 +37,10 @@ const envSchema = z.object({
   TURN_URLS: envCsv.default([]),
   TURN_USERNAME: z.string().optional().default(''),
   TURN_CREDENTIAL: z.string().optional().default(''),
-  TURN_CREDENTIAL_TTL: envPositiveInt.default(86_400),
+  /** coturn `use-auth-secret` / TURN REST. Prefer this over static TURN_USERNAME. */
+  TURN_SHARED_SECRET: z.string().optional().default(''),
+  TURN_CREDENTIAL_TTL: envPositiveInt.default(3_600),
+  RATE_LIMIT_GUEST_MAX: envPositiveInt.default(40),
 
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: envInt.default(1025),

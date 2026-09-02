@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma, GuestAccessLink, GuestLinkStatus } from '@prisma/client';
 import { ERROR_CODES } from '@nexusdesk/shared';
 import { parseDuration } from '@nexusdesk/utils';
+import { randomInt } from 'node:crypto';
 import { hashToken, generateOpaqueToken } from '../lib/tokens.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
@@ -28,11 +29,10 @@ export function isGuestLinkNeverExpires(expiresAt: Date | string): boolean {
 }
 
 function generateGuestCode(): string {
-  // ScreenConnect-style short code (exclude ambiguous chars).
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
-  for (let i = 0; i < 8; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)]!;
+  for (let i = 0; i < 10; i++) {
+    out += alphabet[randomInt(alphabet.length)]!;
   }
   return out;
 }
@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '79';
+export const GUEST_INSTALLER_CACHE_BUST = '80';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -551,7 +551,7 @@ export class GuestAccessService {
       '  MsgBox "This setup needs Windows 10 or later.", 16, "Setup"',
       '  WScript.Quit 1',
       'End If',
-      'sh.Popup "Please wait.", 2, "Setup", 64',
+      'sh.Popup "Please wait.", 2, "NexusDesk Remote Support", 64',
       'tmpDir = sh.ExpandEnvironmentStrings("%TEMP%") & "\\NexusDeskSetup"',
       'On Error Resume Next',
       'If Not fso.FolderExists(tmpDir) Then fso.CreateFolder tmpDir',

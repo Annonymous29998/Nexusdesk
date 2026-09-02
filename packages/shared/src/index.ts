@@ -16,11 +16,17 @@ export { API_ROUTES, buildApiPath, type ApiRoutes } from './routes.js';
 export { WS_EVENTS, type WsEventName } from './ws-events.js';
 
 export {
-  createApiError,
-  ERROR_CODES,
-  type ApiErrorBody,
-  type ErrorCode,
-} from './errors.js';
+  MIN_REMOTE_CONTROL_AGENT_VERSION,
+  compareAgentVersion,
+  isRemoteControlAgentCompatible,
+  parseAgentVersion,
+  INPUT_DATA_CHANNEL_LABEL,
+  MOVE_DATA_CHANNEL_LABEL,
+  selectInputTransport,
+  isDiscreteInput,
+} from './agent-compat.js';
+
+export { createApiError, ERROR_CODES, type ApiErrorBody, type ErrorCode } from './errors.js';
 
 export {
   accessTokenClaimsSchema,

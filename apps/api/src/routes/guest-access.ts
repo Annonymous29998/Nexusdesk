@@ -149,8 +149,14 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     },
   );
 
-  // Public guest endpoints (no auth)
-  app.get(API_ROUTES.guestLinks.publicByCode, async (req) => {
+  // Public guest endpoints (no auth) — tighter limit to slow code guessing.
+  const guestLimit = {
+    config: {
+      rateLimit: { max: getEnv().RATE_LIMIT_GUEST_MAX, timeWindow: getEnv().RATE_LIMIT_WINDOW_MS },
+    },
+  };
+
+  app.get(API_ROUTES.guestLinks.publicByCode, guestLimit, async (req) => {
     const { code } = req.params as { code: string };
     return guests().getPublicByCode(code);
   });

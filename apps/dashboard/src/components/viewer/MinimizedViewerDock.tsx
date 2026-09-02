@@ -8,12 +8,21 @@ import {
   type RemoteScreenFrameHandle,
 } from '@/components/viewer/RemoteScreenFrame';
 import { useOrgId } from '@/hooks/useDevices';
-import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
+import type { StreamStatus } from '@/lib/remote-stream';
+import {
+  acquireRemoteSession,
+  attachRemoteVideo,
+  closeRemoteSession,
+  detachRemoteVideo,
+  markWebrtcReady,
+  releaseRemoteSession,
+  subscribeRemoteSession,
+} from '@/lib/remote-session-runtime';
 import { useActiveViewerStore } from '@/stores/active-viewer';
 
 /**
- * Floating mini viewer shown after Minimize — keeps the remote session streaming
- * while the admin uses the rest of the dashboard.
+ * Floating mini viewer shown after Minimize — reuses the existing remote
+ * session connection instead of opening a second WebRTC peer.
  */
 export function MinimizedViewerDock() {
   const navigate = useNavigate();
@@ -23,63 +32,49 @@ export function MinimizedViewerDock() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [showScreen, setShowScreen] = useState(false);
   const [webrtcReady, setWebrtcReady] = useState(false);
-  const [streamEpoch, setStreamEpoch] = useState(0);
-  const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<RemoteScreenFrameHandle>(null);
-  const pendingStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    if (!minimized) {
-      clientRef.current?.close();
-      clientRef.current = null;
-      pendingStreamRef.current = null;
+    if (!minimized || !orgId) {
       setShowScreen(false);
       setWebrtcReady(false);
       setStatus('idle');
       return;
     }
 
-    const client = new RemoteStreamClient({
-      orgId: orgId ?? '',
+    acquireRemoteSession({
+      orgId,
       sessionId: minimized.sessionId,
       deviceId: minimized.deviceId,
+    });
+    const unsubscribe = subscribeRemoteSession(minimized.sessionId, {
       onStatus: (s) => setStatus(s),
-      onFrame: (jpeg) => {
+      onJpeg: (jpeg) => {
         frameRef.current?.setFrame(jpeg);
-        setShowScreen(true);
+        setShowScreen((open) => open || true);
       },
-      onVideoStream: (stream) => {
-        pendingStreamRef.current = stream;
-        setStreamEpoch((n) => n + 1);
-        const video = videoRef.current;
-        if (video) {
-          video.srcObject = stream;
-          void video.play().catch(() => undefined);
-        }
+      onWebrtcReady: (ready) => {
+        setWebrtcReady(ready);
+        if (ready) setShowScreen(true);
       },
     });
-    clientRef.current = client;
-    client.connect();
-
     return () => {
-      client.close();
-      if (clientRef.current === client) clientRef.current = null;
+      unsubscribe();
+      releaseRemoteSession(minimized.sessionId, { stopStream: false });
     };
   }, [minimized?.sessionId, minimized?.deviceId, orgId]);
 
   useEffect(() => {
     const video = videoRef.current;
-    const stream = pendingStreamRef.current;
-    if (!video || !stream) return;
-    if (video.srcObject !== stream) video.srcObject = stream;
-    void video.play().catch(() => undefined);
-
+    if (!video || !minimized) return;
+    attachRemoteVideo(minimized.sessionId, video);
     let poll = 0;
     const revealIfFramed = () => {
       if (video.videoWidth < 16 || video.videoHeight < 16) return;
       if (poll) window.clearInterval(poll);
       poll = 0;
+      markWebrtcReady(minimized.sessionId, true);
       setWebrtcReady(true);
       setShowScreen(true);
     };
@@ -91,8 +86,9 @@ export function MinimizedViewerDock() {
       video.removeEventListener('loadeddata', revealIfFramed);
       video.removeEventListener('resize', revealIfFramed);
       if (poll) window.clearInterval(poll);
+      detachRemoteVideo(minimized.sessionId, video);
     };
-  }, [showScreen, streamEpoch]);
+  }, [minimized?.sessionId]);
 
   if (!minimized) return null;
 
@@ -106,6 +102,7 @@ export function MinimizedViewerDock() {
 
   const end = () => {
     const { sessionId } = minimized;
+    closeRemoteSession(sessionId);
     clearMinimized();
     if (orgId) {
       void endSession(orgId, sessionId).finally(() => navigate('/sessions'));
@@ -123,7 +120,7 @@ export function MinimizedViewerDock() {
           {live ? (
             <Wifi className="h-3 w-3 text-emerald-400" />
           ) : (
-            <WifiOff className="h-3 w-3 text-amber-400" />
+            <WifiOff className="h-3 w-3 text-slate-400" />
           )}
           {live ? 'live' : status}
         </span>

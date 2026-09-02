@@ -4,12 +4,7 @@ import { getAccessToken } from '@/api/client';
 import { getWsUrl } from '@/lib/env';
 
 export type SignalingStatus =
-  | 'idle'
-  | 'connecting'
-  | 'authenticating'
-  | 'connected'
-  | 'disconnected'
-  | 'error';
+  'idle' | 'connecting' | 'authenticating' | 'connected' | 'disconnected' | 'error';
 
 export interface SignalingClientOptions {
   sessionId: string;
@@ -20,9 +15,11 @@ export interface SignalingClientOptions {
 }
 
 /**
- * WebRTC signaling client stub — connects to the NexusDesk WS endpoint,
- * authenticates, and joins the session room. Full SDP/ICE exchange can be
- * layered on top when media peers are available.
+ * UNUSED by the live Viewer.
+ *
+ * Production remote desktop signaling is `apps/api/src/sockets/index.ts` (`GET /ws`).
+ * `Viewer.tsx` uses `RemoteStreamClient` → `ScreenStreamClient`, not this class.
+ * Kept so older experiments do not break imports; do not wire new features here.
  */
 export class SignalingClient {
   private ws: WebSocket | null = null;

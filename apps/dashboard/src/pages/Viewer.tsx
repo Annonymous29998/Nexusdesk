@@ -11,27 +11,28 @@ import {
   type RemoteScreenFrameHandle,
 } from '@/components/viewer/RemoteScreenFrame';
 import { useOrgId } from '@/hooks/useDevices';
-import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
+import type { StreamStatus } from '@/lib/remote-stream';
+import {
+  acquireRemoteSession,
+  attachRemoteVideo,
+  closeRemoteSession,
+  detachRemoteVideo,
+  markWebrtcReady,
+  pasteToRemoteSession,
+  releaseRemoteSession,
+  requestRemoteClipboard,
+  sendRemoteInput,
+  setRemoteSessionKeepAlive,
+  subscribeRemoteSession,
+  type AgentUpdateInfo,
+} from '@/lib/remote-session-runtime';
 import { formatDuration } from '@/lib/utils';
 import { useActiveViewerStore } from '@/stores/active-viewer';
-
-const STATUS_LABEL: Record<StreamStatus, string> = {
-  idle: 'idle',
-  connecting: 'connecting',
-  authenticating: 'authenticating',
-  waiting: 'waiting for screen…',
-  streaming: 'live',
-  offline: 'device offline',
-  disconnected: 'disconnected',
-  reconnecting: 'reconnecting',
-  error: 'error',
-};
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
 
-/** Map a click onto the letterboxed desktop picture (object-contain), not the black bars. */
 function mapPointerToRemote(
   clientX: number,
   clientY: number,
@@ -58,6 +59,63 @@ function mapPointerToRemote(
   };
 }
 
+function statusCopy(
+  status: StreamStatus,
+  webrtcReady: boolean,
+  detail?: string,
+): { label: string; title: string; subtitle: string } {
+  if (status === 'offline') {
+    return {
+      label: 'offline',
+      title: 'Guest disconnected',
+      subtitle: detail ?? 'The agent is not connected. Reinstall the support app on the remote PC.',
+    };
+  }
+  if (status === 'reconnecting') {
+    return {
+      label: 'reconnecting',
+      title: 'Reconnecting…',
+      subtitle: detail ?? 'Trying another network path…',
+    };
+  }
+  if (status === 'disconnected' || status === 'error') {
+    return {
+      label: status,
+      title: 'Disconnected',
+      subtitle: detail ?? 'The remote session closed.',
+    };
+  }
+  if (status === 'streaming' && webrtcReady) {
+    return { label: 'connected', title: 'Connected', subtitle: 'Live remote desktop' };
+  }
+  if (status === 'streaming') {
+    return {
+      label: 'live',
+      title: 'Negotiating video…',
+      subtitle: detail ?? 'Secure channel is up. Waiting for the first video frame.',
+    };
+  }
+  if (status === 'waiting') {
+    return {
+      label: 'connecting',
+      title: 'Connecting to guest…',
+      subtitle: detail ?? 'Negotiating video…',
+    };
+  }
+  if (status === 'authenticating') {
+    return {
+      label: 'connecting',
+      title: 'Establishing secure connection…',
+      subtitle: detail ?? 'Authenticating with the API.',
+    };
+  }
+  return {
+    label: 'connecting',
+    title: 'Connecting…',
+    subtitle: detail ?? 'Opening the remote session.',
+  };
+}
+
 export function ViewerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const orgId = useOrgId();
@@ -68,13 +126,13 @@ export function ViewerPage() {
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
   const [webrtcReady, setWebrtcReady] = useState(false);
-  const [streamEpoch, setStreamEpoch] = useState(0);
-  const clientRef = useRef<RemoteStreamClient | null>(null);
+  const [agentUpdate, setAgentUpdate] = useState<AgentUpdateInfo | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<RemoteScreenFrameHandle>(null);
-  const pendingStreamRef = useRef<MediaStream | null>(null);
-  const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const showScreenRef = useRef(false);
+  const webrtcReadyRef = useRef(false);
   const pendingMoveRef = useRef<{
     x: number;
     y: number;
@@ -85,149 +143,15 @@ export function ViewerPage() {
   const minimizingRef = useRef(false);
   const clipboardPullTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const applyRemoteClipboard = async (text: string) => {
-    if (!text) return;
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      }
-    } catch {
-      /* viewer may block clipboard write without gesture */
-    }
-  };
-
-  const pasteLocalClipboard = async () => {
-    const client = clientRef.current;
-    if (!client || status !== 'streaming') return;
-    try {
-      const text =
-        navigator.clipboard && window.isSecureContext ? await navigator.clipboard.readText() : '';
-      if (text) client.pasteToRemote(text);
-    } catch {
-      /* ignore — user can use toolbar paste later if needed */
-    }
-  };
-
-  /** Mac trackpad/keyboard uses Cmd; remote Windows expects Ctrl. */
-  const isModDown = (e: React.KeyboardEvent) => e.ctrlKey || e.metaKey;
-
-  const sendKey = (kind: 'key-down' | 'key-up', e: React.KeyboardEvent) => {
-    const client = clientRef.current;
-    if (!client || status !== 'streaming') return;
-
-    const mod = isModDown(e);
-    const isPaste = mod && (e.key === 'v' || e.key === 'V');
-    const isCopy = mod && (e.key === 'c' || e.key === 'C');
-
-    if (kind === 'key-down' && isPaste) {
-      e.preventDefault();
-      void pasteLocalClipboard();
-      return;
-    }
-
-    if (kind === 'key-down' && e.key === 'Dead') return;
-
-    if (isCopy) {
-      e.preventDefault();
-      if (kind === 'key-down') {
-        client.sendInput({ kind: 'key-down', key: 'Control' });
-        client.sendInput({ kind: 'key-down', key: e.key, code: e.code });
-      } else {
-        client.sendInput({ kind: 'key-up', key: e.key, code: e.code });
-        client.sendInput({ kind: 'key-up', key: 'Control' });
-        if (clipboardPullTimerRef.current) clearTimeout(clipboardPullTimerRef.current);
-        clipboardPullTimerRef.current = setTimeout(() => {
-          clientRef.current?.requestRemoteClipboard();
-        }, 250);
-      }
-      return;
-    }
-
-    e.preventDefault();
-
-    // Map Cmd (Mac) → Ctrl on the remote Windows session.
-    if (e.key === 'Meta') {
-      client.sendInput({ kind, key: 'Control' });
-      return;
-    }
-    if (e.metaKey && !e.ctrlKey && kind === 'key-down') {
-      client.sendInput({ kind: 'key-down', key: 'Control' });
-    }
-    client.sendInput({ kind, key: e.key, code: e.code || undefined });
-    if (e.metaKey && !e.ctrlKey && kind === 'key-up' && e.key !== 'Control') {
-      client.sendInput({ kind: 'key-up', key: 'Control' });
-    }
-  };
-
-  const pointerButton = (e: React.PointerEvent): 'left' | 'right' | 'middle' => {
-    if (e.buttons & 2 || e.button === 2) return 'right';
-    if (e.buttons & 4 || e.button === 1) return 'middle';
-    return 'left';
-  };
-
-  const flushPointerMoveSync = () => {
-    if (moveRafRef.current !== null) {
-      cancelAnimationFrame(moveRafRef.current);
-      moveRafRef.current = null;
-    }
-    const pending = pendingMoveRef.current;
-    const client = clientRef.current;
-    if (pending && client) {
-      client.sendInput({
-        kind: 'mouse-move',
-        x: pending.x,
-        y: pending.y,
-        button: pending.button,
-        buttons: pending.buttons,
-      });
-    }
-    pendingMoveRef.current = null;
-  };
-
-  const flushPointerMove = () => {
-    moveRafRef.current = null;
-    const pending = pendingMoveRef.current;
-    const client = clientRef.current;
-    if (!pending || !client) return;
-    client.sendInput({
-      kind: 'mouse-move',
-      x: pending.x,
-      y: pending.y,
-      button: pending.button,
-      buttons: pending.buttons,
-    });
-  };
-
-  const sendPointer = (e: React.PointerEvent, kind: 'mouse-move' | 'mouse-down' | 'mouse-up') => {
-    const client = clientRef.current;
-    const el = e.currentTarget as HTMLElement;
-    if (!client || !el || !showScreen) return;
-    const video = videoRef.current;
-    const content =
-      webrtcReady && video && video.videoWidth >= 16
-        ? { width: video.videoWidth, height: video.videoHeight }
-        : (frameRef.current?.getContentSize() ?? null);
-    const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
-    if (!mapped) return;
-    const { x, y } = mapped;
-    const button = pointerButton(e);
-    const buttons = e.buttons;
-    if (kind === 'mouse-move') {
-      pendingMoveRef.current = { x, y, button, buttons };
-      if (moveRafRef.current === null) {
-        moveRafRef.current = requestAnimationFrame(flushPointerMove);
-      }
-      return;
-    }
-    flushPointerMoveSync();
-    client.sendInput({ kind, x, y, button, buttons });
-  };
+  showScreenRef.current = showScreen;
+  webrtcReadyRef.current = webrtcReady;
 
   const session = useQuery({
     queryKey: ['session', orgId, sessionId],
     enabled: Boolean(orgId && sessionId),
     queryFn: () => getSession(orgId!, sessionId!),
-    refetchInterval: 4000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
   });
 
   const deviceId = session.data?.deviceId;
@@ -235,77 +159,59 @@ export function ViewerPage() {
     queryKey: ['device', orgId, deviceId],
     enabled: Boolean(orgId && deviceId),
     queryFn: () => getDevice(orgId!, deviceId!),
+    refetchOnWindowFocus: false,
   });
 
-  // Entering the full viewer clears any floating mini preview for the same session.
   useEffect(() => {
     if (!sessionId) return;
     minimizingRef.current = false;
     const current = useActiveViewerStore.getState().minimized;
-    if (current?.sessionId === sessionId) {
-      clearMinimized();
-    }
+    if (current?.sessionId === sessionId) clearMinimized();
   }, [sessionId, clearMinimized]);
 
   useEffect(() => {
-    if (!sessionId || !deviceId) return;
-    gotFirstFrameRef.current = false;
-    pendingStreamRef.current = null;
-    setShowScreen(false);
-    setWebrtcReady(false);
-    setStreamEpoch(0);
-    const client = new RemoteStreamClient({
-      orgId: orgId!,
-      sessionId,
-      deviceId,
+    if (!sessionId || !deviceId || !orgId) return;
+    acquireRemoteSession({ orgId, sessionId, deviceId });
+    const unsubscribe = subscribeRemoteSession(sessionId, {
       onStatus: (s, d) => {
-        setStatus((prev) => (prev === s ? prev : s));
-        setDetail((prev) => (prev === d ? prev : d));
+        setStatus(s);
+        setDetail(d);
       },
-      onFrame: (jpeg) => {
+      onJpeg: (jpeg) => {
         frameRef.current?.setFrame(jpeg);
-        if (!gotFirstFrameRef.current) {
-          gotFirstFrameRef.current = true;
-          setShowScreen(true);
-        }
+        if (!showScreenRef.current) setShowScreen(true);
       },
-      onVideoStream: (stream) => {
-        pendingStreamRef.current = stream;
-        setStreamEpoch((n) => n + 1);
-        const video = videoRef.current;
-        if (video && video.srcObject !== stream) {
-          video.srcObject = stream;
-          void video.play().catch(() => undefined);
-        }
+      onWebrtcReady: (ready) => {
+        setWebrtcReady(ready);
+        if (ready) setShowScreen(true);
       },
-      onClipboard: (text) => {
-        void applyRemoteClipboard(text);
-      },
+      onAgentUpdateRequired: (info) => setAgentUpdate(info),
     });
-    clientRef.current = client;
-    client.connect();
     return () => {
+      unsubscribe();
       if (clipboardPullTimerRef.current) {
         clearTimeout(clipboardPullTimerRef.current);
         clipboardPullTimerRef.current = null;
       }
-      client.close({ stopStream: !minimizingRef.current });
-      clientRef.current = null;
+      if (minimizingRef.current) {
+        setRemoteSessionKeepAlive(sessionId, true);
+        releaseRemoteSession(sessionId, { stopStream: false });
+      } else {
+        releaseRemoteSession(sessionId);
+      }
     };
   }, [sessionId, deviceId, orgId]);
 
   useEffect(() => {
     const video = videoRef.current;
-    const stream = pendingStreamRef.current;
-    if (!video || !stream) return;
-    if (video.srcObject !== stream) video.srcObject = stream;
-    void video.play().catch(() => undefined);
-
+    if (!video || !sessionId) return;
+    attachRemoteVideo(sessionId, video);
     let poll = 0;
     const revealIfFramed = () => {
       if (video.videoWidth < 16 || video.videoHeight < 16) return;
       if (poll) window.clearInterval(poll);
       poll = 0;
+      markWebrtcReady(sessionId, true);
       setWebrtcReady(true);
       setShowScreen(true);
     };
@@ -317,8 +223,120 @@ export function ViewerPage() {
       video.removeEventListener('loadeddata', revealIfFramed);
       video.removeEventListener('resize', revealIfFramed);
       if (poll) window.clearInterval(poll);
+      detachRemoteVideo(sessionId, video);
     };
-  }, [showScreen, status, streamEpoch]);
+  }, [sessionId, deviceId]);
+
+  const pasteLocalClipboard = async () => {
+    if (!sessionId || status !== 'streaming') return;
+    try {
+      const text =
+        navigator.clipboard && window.isSecureContext ? await navigator.clipboard.readText() : '';
+      if (text) pasteToRemoteSession(sessionId, text);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const isModDown = (e: React.KeyboardEvent) => e.ctrlKey || e.metaKey;
+
+  const sendKey = (kind: 'key-down' | 'key-up', e: React.KeyboardEvent) => {
+    if (!sessionId || status !== 'streaming') return;
+    const mod = isModDown(e);
+    const isPaste = mod && (e.key === 'v' || e.key === 'V');
+    const isCopy = mod && (e.key === 'c' || e.key === 'C');
+
+    if (kind === 'key-down' && isPaste) {
+      e.preventDefault();
+      void pasteLocalClipboard();
+      return;
+    }
+    if (kind === 'key-down' && e.key === 'Dead') return;
+
+    if (isCopy) {
+      e.preventDefault();
+      if (kind === 'key-down') {
+        sendRemoteInput(sessionId, { kind: 'key-down', key: 'Control' });
+        sendRemoteInput(sessionId, { kind: 'key-down', key: e.key, code: e.code });
+      } else {
+        sendRemoteInput(sessionId, { kind: 'key-up', key: e.key, code: e.code });
+        sendRemoteInput(sessionId, { kind: 'key-up', key: 'Control' });
+        if (clipboardPullTimerRef.current) clearTimeout(clipboardPullTimerRef.current);
+        clipboardPullTimerRef.current = setTimeout(() => {
+          if (sessionId) requestRemoteClipboard(sessionId);
+        }, 250);
+      }
+      return;
+    }
+
+    e.preventDefault();
+    if (e.key === 'Meta') {
+      sendRemoteInput(sessionId, { kind, key: 'Control' });
+      return;
+    }
+    if (e.metaKey && !e.ctrlKey && kind === 'key-down') {
+      sendRemoteInput(sessionId, { kind: 'key-down', key: 'Control' });
+    }
+    sendRemoteInput(sessionId, { kind, key: e.key, code: e.code || undefined });
+    if (e.metaKey && !e.ctrlKey && kind === 'key-up' && e.key !== 'Control') {
+      sendRemoteInput(sessionId, { kind: 'key-up', key: 'Control' });
+    }
+  };
+
+  const pointerButton = (e: React.PointerEvent): 'left' | 'right' | 'middle' => {
+    if (e.buttons & 2 || e.button === 2) return 'right';
+    if (e.buttons & 4 || e.button === 1) return 'middle';
+    return 'left';
+  };
+
+  const moveCursorOverlay = (e: React.PointerEvent) => {
+    const overlay = cursorRef.current;
+    const box = e.currentTarget as HTMLElement;
+    if (!overlay || !box) return;
+    const rect = box.getBoundingClientRect();
+    overlay.style.opacity = '1';
+    overlay.style.transform = `translate(${e.clientX - rect.left}px, ${e.clientY - rect.top}px)`;
+  };
+
+  const flushPointerMoveSync = () => {
+    if (moveRafRef.current !== null) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = null;
+    }
+    const pending = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (pending && sessionId) {
+      sendRemoteInput(sessionId, { kind: 'mouse-move', ...pending });
+    }
+  };
+
+  const sendPointer = (e: React.PointerEvent, kind: 'mouse-move' | 'mouse-down' | 'mouse-up') => {
+    if (!sessionId || !showScreenRef.current) return;
+    const el = e.currentTarget as HTMLElement;
+    const video = videoRef.current;
+    const content =
+      webrtcReadyRef.current && video && video.videoWidth >= 16
+        ? { width: video.videoWidth, height: video.videoHeight }
+        : (frameRef.current?.getContentSize() ?? null);
+    const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
+    if (!mapped) return;
+    const button = pointerButton(e);
+    const buttons = e.buttons;
+    if (kind === 'mouse-move') {
+      pendingMoveRef.current = { x: mapped.x, y: mapped.y, button, buttons };
+      if (moveRafRef.current === null) {
+        moveRafRef.current = requestAnimationFrame(() => {
+          moveRafRef.current = null;
+          const pending = pendingMoveRef.current;
+          pendingMoveRef.current = null;
+          if (pending && sessionId) sendRemoteInput(sessionId, { kind: 'mouse-move', ...pending });
+        });
+      }
+      return;
+    }
+    flushPointerMoveSync();
+    sendRemoteInput(sessionId, { kind, x: mapped.x, y: mapped.y, button, buttons });
+  };
 
   if (session.isLoading) return <LoadingBlock label="Opening session…" />;
   if (!session.data) {
@@ -334,19 +352,18 @@ export function ViewerPage() {
 
   const connected = status === 'streaming';
   const deviceName = device.data?.name ?? session.data.deviceId;
+  const copy = statusCopy(status, webrtcReady, detail);
 
   const onMinimize = () => {
     if (!sessionId || !deviceId) return;
     minimizingRef.current = true;
-    minimize({
-      sessionId,
-      deviceId,
-      deviceName,
-    });
+    setRemoteSessionKeepAlive(sessionId, true);
+    minimize({ sessionId, deviceId, deviceName });
     navigate('/devices');
   };
 
   const onEndSession = () => {
+    if (sessionId) closeRemoteSession(sessionId);
     clearMinimized();
     void endSession(orgId!, session.data!.id).finally(() => navigate('/sessions'));
   };
@@ -363,12 +380,12 @@ export function ViewerPage() {
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs">
-            {connected ? (
+            {connected && webrtcReady ? (
               <Wifi className="h-3.5 w-3.5 text-emerald-400" />
             ) : (
               <WifiOff className="h-3.5 w-3.5 text-amber-400" />
             )}
-            {STATUS_LABEL[status]}
+            {copy.label}
             {detail ? ` · ${detail}` : ''}
           </span>
           <span className="hidden text-xs text-slate-400 sm:inline">
@@ -391,6 +408,13 @@ export function ViewerPage() {
         </div>
       </header>
 
+      {agentUpdate ? (
+        <div className="border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+          Guest agent {agentUpdate.agentVersion || 'unknown'} is out of date. Reinstall from the
+          join link (requires {agentUpdate.minAgentVersion}+) for reliable remote control.
+        </div>
+      ) : null}
+
       <div
         ref={screenRef}
         tabIndex={0}
@@ -398,42 +422,31 @@ export function ViewerPage() {
         onKeyDown={(e) => sendKey('key-down', e)}
         onKeyUp={(e) => sendKey('key-up', e)}
         onPaste={(e) => {
-          if (status !== 'streaming') return;
+          if (status !== 'streaming' || !sessionId) return;
           e.preventDefault();
           const text = e.clipboardData.getData('text/plain');
-          if (text) clientRef.current?.pasteToRemote(text);
+          if (text) pasteToRemoteSession(sessionId, text);
         }}
       >
         {showScreen ? null : (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[hsl(215_32%_6%)] text-center">
             <div className="h-16 w-16 animate-pulse-soft rounded-2xl border border-teal-400/30 bg-teal-400/10" />
-            <p className="font-display text-xl font-semibold">
-              {status === 'offline'
-                ? 'Device is offline'
-                : status === 'reconnecting'
-                  ? 'Reconnecting…'
-                  : 'Connecting to remote screen…'}
-            </p>
-            <p className="text-sm text-slate-400">
-              {status === 'offline'
-                ? (detail ??
-                  'The agent is not connected. Make sure the support app is running on the remote PC.')
-                : detail?.startsWith('capture:')
-                  ? detail.replace(/^capture:\s*/, 'Screen capture failed: ')
-                  : status === 'streaming'
-                    ? 'Receiving the remote desktop…'
-                    : (detail ?? 'Waiting for the first frame from the remote PC.')}
-            </p>
+            <p className="font-display text-xl font-semibold">{copy.title}</p>
+            <p className="text-sm text-slate-400">{copy.subtitle}</p>
           </div>
         )}
         <div
           className="relative h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] max-h-full max-w-full cursor-none touch-none"
           style={{ touchAction: 'none' }}
-          onPointerMove={(e) => sendPointer(e, 'mouse-move')}
+          onPointerMove={(e) => {
+            moveCursorOverlay(e);
+            sendPointer(e, 'mouse-move');
+          }}
           onPointerDown={(e) => {
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
             screenRef.current?.focus();
+            moveCursorOverlay(e);
             sendPointer(e, 'mouse-down');
           }}
           onPointerUp={(e) => {
@@ -447,18 +460,22 @@ export function ViewerPage() {
           onPointerCancel={(e) => {
             sendPointer(e, 'mouse-up');
           }}
+          onPointerLeave={() => {
+            if (cursorRef.current) cursorRef.current.style.opacity = '0';
+          }}
           onContextMenu={(e) => e.preventDefault()}
           onWheel={(e) => {
             e.preventDefault();
+            if (!sessionId) return;
             const el = e.currentTarget as HTMLElement;
             const video = videoRef.current;
             const content =
-              webrtcReady && video && video.videoWidth >= 16
+              webrtcReadyRef.current && video && video.videoWidth >= 16
                 ? { width: video.videoWidth, height: video.videoHeight }
                 : (frameRef.current?.getContentSize() ?? null);
             const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
             if (!mapped) return;
-            clientRef.current?.sendInput({
+            sendRemoteInput(sessionId, {
               kind: 'wheel',
               deltaY: e.deltaY,
               x: mapped.x,
@@ -476,6 +493,10 @@ export function ViewerPage() {
             playsInline
             muted
             className={`pointer-events-none absolute inset-0 h-full w-full select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl ${webrtcReady ? '' : 'invisible'}`}
+          />
+          <div
+            ref={cursorRef}
+            className="pointer-events-none absolute left-0 top-0 z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-teal-400/80 opacity-0 shadow-[0_0_12px_rgba(45,212,191,0.9)]"
           />
         </div>
       </div>

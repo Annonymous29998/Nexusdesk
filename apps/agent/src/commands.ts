@@ -16,6 +16,8 @@ import { getRemoteClipboardText, pasteToRemoteClipboard } from './capture/clipbo
 import { sendWakeOnLan } from './system/wol.js';
 import { runTerminalCommand } from './system/terminal.js';
 import { checkForUpdate } from './update.js';
+import type { IceServerConfig } from './webrtc/peer.js';
+import { JPEG_FALLBACK_DELAY_MS, shouldStartJpegFallback } from './stream-mode.js';
 
 const log = createLogger('commands');
 
@@ -35,7 +37,49 @@ interface AgentCommand {
 }
 
 export class CommandHandler {
+  private readonly jpegFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly streamStartedAt = new Map<string, number>();
+
   constructor(private readonly options: CommandHandlerOptions) {}
+
+  markWebrtcHealthy(sessionId: string): void {
+    this.clearJpegFallback(sessionId);
+    this.options.streamer.stop(sessionId, { keepInputSession: true });
+  }
+
+  markWebrtcFailed(sessionId: string): void {
+    this.clearJpegFallback(sessionId);
+    this.options.streamer.start(sessionId);
+  }
+
+  private clearJpegFallback(sessionId: string): void {
+    const timer = this.jpegFallbackTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.jpegFallbackTimers.delete(sessionId);
+    }
+  }
+
+  private scheduleJpegFallback(sessionId: string, webrtcStarted: boolean): void {
+    this.clearJpegFallback(sessionId);
+    const startedAt = Date.now();
+    this.streamStartedAt.set(sessionId, startedAt);
+    const timer = setTimeout(() => {
+      this.jpegFallbackTimers.delete(sessionId);
+      const healthy = this.options.webrtc?.isHealthy(sessionId) ?? false;
+      if (
+        shouldStartJpegFallback({
+          webrtcStarted,
+          webrtcHealthy: healthy,
+          elapsedMs: Date.now() - startedAt,
+        })
+      ) {
+        log.warn({ sessionId }, 'WebRTC not healthy — starting JPEG fallback');
+        this.options.streamer.start(sessionId);
+      }
+    }, JPEG_FALLBACK_DELAY_MS);
+    this.jpegFallbackTimers.set(sessionId, timer);
+  }
 
   async handleInput(payload: RemoteInputEvent): Promise<void> {
     if (!payload?.kind) return;
@@ -92,20 +136,23 @@ export class CommandHandler {
           const sessionId = String(command.payload?.sessionId ?? '');
           if (sessionId) {
             void prepareWindowsInput();
-            // JPEG is the desktop picture the operator sees immediately (AnyDesk-style).
-            // WebRTC runs in parallel and takes over once it is actually sending frames.
-            this.options.streamer.start(sessionId);
+            const iceServers = Array.isArray(command.payload?.iceServers)
+              ? (command.payload?.iceServers as IceServerConfig[])
+              : undefined;
             const mode = this.options.env.AGENT_STREAM_MODE;
-            if (mode === 'jpeg') return;
+            if (mode === 'jpeg') {
+              this.options.streamer.start(sessionId);
+              return;
+            }
             const webrtcStarted = this.options.webrtc
-              ? await this.options.webrtc.start(sessionId)
+              ? await this.options.webrtc.start(sessionId, iceServers)
               : false;
             if (!webrtcStarted) {
-              log.warn(
-                { sessionId },
-                'WebRTC unavailable — continuing with the remote desktop stream',
-              );
+              log.warn({ sessionId }, 'WebRTC unavailable — JPEG fallback is the live path');
+              this.options.streamer.start(sessionId);
+              return;
             }
+            this.scheduleJpegFallback(sessionId, true);
           }
           return;
         }
@@ -113,6 +160,10 @@ export class CommandHandler {
           const sessionId = command.payload?.sessionId
             ? String(command.payload.sessionId)
             : undefined;
+          if (sessionId) this.clearJpegFallback(sessionId);
+          else {
+            for (const id of this.jpegFallbackTimers.keys()) this.clearJpegFallback(id);
+          }
           this.options.webrtc?.stop(sessionId);
           this.options.streamer.stop(sessionId);
           return;

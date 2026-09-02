@@ -87,7 +87,10 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
       await app.prisma.$queryRaw`SELECT 1`;
       const redisOk =
         app.redis.status === 'ready'
-          ? await app.redis.ping().then(() => true).catch(() => false)
+          ? await app.redis
+              .ping()
+              .then(() => true)
+              .catch(() => false)
           : false;
       return {
         status: 'ready',
@@ -409,10 +412,8 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
       services.devices.remove(request.params.orgId, request.params.deviceId, request.authUser!.sub),
   );
 
-  app.post(
-    '/devices/enroll',
-    { preHandler: [validateBody(enrollDeviceSchema)] },
-    async (request) => services.devices.enroll(request.body as never),
+  app.post('/devices/enroll', { preHandler: [validateBody(enrollDeviceSchema)] }, async (request) =>
+    services.devices.enroll(request.body as never),
   );
 
   app.post<{ Params: { deviceId: string } }>(
@@ -575,7 +576,8 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
         request.params.sessionId,
         request.params.connectionId,
       );
-      if (!conn) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Connection not found' });
+      if (!conn)
+        return reply.code(404).send({ code: 'NOT_FOUND', message: 'Connection not found' });
       return conn;
     },
   );
@@ -590,7 +592,11 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
       ],
     },
     async (request) =>
-      services.sessions.turnCredentials(request.params.orgId, request.params.sessionId),
+      services.sessions.turnCredentials(
+        request.params.orgId,
+        request.params.sessionId,
+        request.authUser?.sub,
+      ),
   );
 
   // Flat /connections alias
@@ -811,10 +817,19 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
     },
   );
 
-  app.get('/notifications', { preHandler: [requireAuth, validateQuery(pageQuerySchema)] }, async (request) => {
-    const q = request.query as { page: number; pageSize: number };
-    return services.notifications.list(request.authUser!.org, request.authUser!.sub, q.page, q.pageSize);
-  });
+  app.get(
+    '/notifications',
+    { preHandler: [requireAuth, validateQuery(pageQuerySchema)] },
+    async (request) => {
+      const q = request.query as { page: number; pageSize: number };
+      return services.notifications.list(
+        request.authUser!.org,
+        request.authUser!.sub,
+        q.page,
+        q.pageSize,
+      );
+    },
+  );
 
   // Analytics
   app.get<{ Params: { orgId: string } }>(
@@ -841,9 +856,7 @@ export async function registerControllers(app: FastifyInstance, services: AppSer
     async (request) => services.analytics.summary(request.params.orgId),
   );
 
-  app.get(
-    '/analytics/summary',
-    { preHandler: [requireAuth] },
-    async (request) => services.analytics.summary(request.authUser!.org),
+  app.get('/analytics/summary', { preHandler: [requireAuth] }, async (request) =>
+    services.analytics.summary(request.authUser!.org),
   );
 }

@@ -6,11 +6,11 @@ services:
       POSTGRES_PASSWORD: nexusdesk
       POSTGRES_DB: nexusdesk
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexusdesk"]
+      test: ['CMD-SHELL', 'pg_isready -U nexusdesk']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,9 +18,9 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - '6379:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -28,8 +28,8 @@ services:
   mailhog:
     image: mailhog/mailhog:v1.0.1
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - '1025:1025'
+      - '8025:8025'
 
   minio:
     image: minio/minio:latest
@@ -38,8 +38,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - miniodata:/data
 
@@ -57,7 +57,7 @@ services:
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
     ports:
-      - "4000:4000"
+      - '4000:4000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       JWT_ISSUER: nexusdesk
       JWT_AUDIENCE: nexusdesk-api
     ports:
-      - "4001:4001"
+      - '4001:4001'
 
   relay:
     build:
@@ -87,7 +87,7 @@ services:
       TURN_SHARED_SECRET: change-me-turn-secret-min-32-chars-long!!
       TURN_REALM: nexusdesk.local
     ports:
-      - "4002:4002"
+      - '4002:4002'
 
   dashboard:
     restart: unless-stopped
@@ -97,9 +97,29 @@ services:
     environment:
       VITE_API_URL: http://localhost:4000
     ports:
-      - "3000:80"
+      - '3000:80'
     depends_on:
       - api
+
+  # Self-hosted TURN for WebRTC (production EC2). Not started in local dev.
+  #   docker compose -f infra/docker/docker-compose.yml --profile turn up -d coturn
+  # AWS security group must allow: 3478/udp, 3478/tcp, 49160-49200/udp.
+  coturn:
+    profiles: ['turn']
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      TURN_REALM: ${TURN_REALM:-nesuxdesk.xyz}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-3.128.135.95}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+    volumes:
+      - ./coturn-entrypoint.sh:/coturn-entrypoint.sh:ro
+    entrypoint: ['/bin/sh', '/coturn-entrypoint.sh']
 
   nginx:
     restart: unless-stopped
@@ -110,8 +130,8 @@ services:
       - ../nginx/snippets:/etc/nginx/snippets:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     depends_on:
       - api
       - dashboard

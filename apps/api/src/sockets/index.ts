@@ -1,9 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import { WS_EVENTS } from '@nexusdesk/shared';
+import {
+  MIN_REMOTE_CONTROL_AGENT_VERSION,
+  WS_EVENTS,
+  isRemoteControlAgentCompatible,
+} from '@nexusdesk/shared';
 import { verifyAccessToken, verifyAgentToken } from '../lib/tokens.js';
 import { DevicesService } from '../services/devices.js';
 import { createLogger } from '../lib/logger.js';
+import { buildIceServers } from '../lib/ice-servers.js';
 
 const log = createLogger('socket');
 
@@ -35,6 +40,8 @@ export function registerSocketHandlers(app: FastifyInstance): void {
   const agents = new Map<string, SocketClient>();
   const sessionRooms = new Map<string, Set<SocketClient>>();
   // Active screen-stream sessions: sessionId -> { deviceId, viewers }.
+  // In-memory routing for JPEG fallback + signaling rooms. WebRTC media is P2P/TURN,
+  // not stored here. A single API instance is required for live session fan-out.
   const streamSessions = new Map<string, { deviceId: string; viewers: Set<SocketClient> }>();
   const streamStopTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const STREAM_STOP_GRACE_MS = 4000;
@@ -67,6 +74,14 @@ export function registerSocketHandlers(app: FastifyInstance): void {
       }, STREAM_STOP_GRACE_MS);
       streamStopTimers.set(sessionId, timer);
     }
+  }
+
+  function startAgentStream(deviceId: string, sessionId: string): boolean {
+    const ice = buildIceServers(`agent:${deviceId}:sess:${sessionId}`);
+    return app.agentGateway.sendCommand(deviceId, {
+      type: 'start_stream',
+      payload: { sessionId, iceServers: ice.iceServers },
+    });
   }
 
   app.decorate('agentGateway', {
@@ -249,7 +264,14 @@ export function registerSocketHandlers(app: FastifyInstance): void {
               socket.send(
                 JSON.stringify({
                   event: WS_EVENTS.agentCommand,
-                  data: { type: 'start_stream', payload: { sessionId } },
+                  data: {
+                    type: 'start_stream',
+                    payload: {
+                      sessionId,
+                      iceServers: buildIceServers(`agent:${client.deviceId}:sess:${sessionId}`)
+                        .iceServers,
+                    },
+                  },
                 }),
               );
             }
@@ -287,7 +309,10 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             for (const viewer of entry.viewers) {
               // Drop the frame for any viewer whose socket is backed up so latency
               // stays real-time instead of queueing on a slow connection.
-              if (viewer.socket.readyState === 1 && viewer.socket.bufferedAmount <= MAX_VIEWER_FRAME_BUFFER_BYTES) {
+              if (
+                viewer.socket.readyState === 1 &&
+                viewer.socket.bufferedAmount <= MAX_VIEWER_FRAME_BUFFER_BYTES
+              ) {
                 viewer.socket.send(payload);
               }
             }
@@ -337,8 +362,9 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             );
             return;
           }
+          let device: { agentVersion?: string } | null = null;
           try {
-            await new DevicesService(app.prisma).get(client.organizationId, deviceId);
+            device = await new DevicesService(app.prisma).get(client.organizationId, deviceId);
           } catch {
             socket.send(
               JSON.stringify({
@@ -348,6 +374,8 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             );
             return;
           }
+          const agentVersion = String(device?.agentVersion ?? '');
+          const agentUpdateRequired = !isRemoteControlAgentCompatible(agentVersion);
           cancelPendingStreamStop(sessionId);
           let entry = streamSessions.get(sessionId);
           if (entry && entry.deviceId !== deviceId) {
@@ -361,13 +389,19 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           entry.viewers.add(client);
           joinSession(sessionId, client);
           const online = app.agentGateway.isOnline(deviceId);
-          log.info({ sessionId, deviceId, online }, 'viewer start');
+          log.info(
+            { sessionId, deviceId, online, agentVersion, agentUpdateRequired },
+            'viewer start',
+          );
           socket.send(
             JSON.stringify({
               event: WS_EVENTS.screenMeta,
               data: {
                 sessionId,
                 deviceOnline: online,
+                agentVersion,
+                minAgentVersion: MIN_REMOTE_CONTROL_AGENT_VERSION,
+                agentUpdateRequired,
                 ...(online ? {} : { reason: 'agent_websocket_offline' }),
               },
             }),
@@ -375,10 +409,7 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           if (online) {
             const agentClient = agents.get(deviceId);
             if (agentClient) joinSession(sessionId, agentClient);
-            const sent = app.agentGateway.sendCommand(deviceId, {
-              type: 'start_stream',
-              payload: { sessionId },
-            });
+            const sent = startAgentStream(deviceId, sessionId);
             if (!sent) {
               log.warn({ sessionId, deviceId }, 'start_stream not delivered');
             }
