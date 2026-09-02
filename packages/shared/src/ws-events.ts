@@ -38,6 +38,7 @@ export const WS_EVENTS = {
   screenFrame: 'screen:frame',
   screenMeta: 'screen:meta',
   inputEvent: 'input:event',
+  clipboardSync: 'clipboard:sync',
 
   // Notifications
   notificationCreated: 'notification:created',

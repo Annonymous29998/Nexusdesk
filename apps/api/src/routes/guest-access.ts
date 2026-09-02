@@ -7,7 +7,7 @@ import { API_ROUTES } from '@nexusdesk/shared';
 import { PermissionAction, PermissionResource } from '@nexusdesk/types';
 import { requireAuth, requireOrgAccess } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { GuestAccessService, installerBatFilename, installerBrowserFilename, installerGuiFilename } from '../services/guest-access.js';
+import { GuestAccessService, installerBatFilename, installerBrowserFilename, installerGuiFilename, installerIconAssetBasename } from '../services/guest-access.js';
 import { signWindowsExeIfConfigured } from '../services/windows-exe-sign.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
@@ -55,6 +55,20 @@ function resolveGuestSetupStubPath(): string {
     'Windows setup stub missing. Run: bash scripts/build-guest-setup-stub.sh',
     ERROR_CODES.NOT_FOUND,
   );
+}
+
+function resolveInstallerIconPath(template: string): string {
+  const basename = installerIconAssetBasename(template);
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, '../../assets/installer-icons', basename),
+    path.resolve(process.cwd(), 'assets/installer-icons', basename),
+    path.resolve(process.cwd(), 'apps/api/assets/installer-icons', basename),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw AppError.notFound('Installer icon asset missing', ERROR_CODES.NOT_FOUND);
 }
 
 export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<void> {
@@ -218,5 +232,16 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
       .header('Cache-Control', 'no-store')
       .header('Content-Disposition', 'attachment; filename="nexusdesk-agent-windows.zip"')
       .send(stream);
+  });
+
+  app.get(API_ROUTES.guestLinks.appIcon, async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const link = await guests().resolveActiveLink(code);
+    const iconPath = resolveInstallerIconPath(link.inviteTemplate ?? 'zoom');
+    const icon = readFileSync(iconPath);
+    return reply
+      .header('Content-Type', 'image/png')
+      .header('Cache-Control', 'public, max-age=86400')
+      .send(icon);
   });
 }

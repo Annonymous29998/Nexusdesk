@@ -24,14 +24,15 @@ const (
 )
 
 type config struct {
-	APIURL       string `json:"apiUrl"`
-	GuestCode    string `json:"guestCode"`
-	Title        string `json:"title"`
-	Brand        string `json:"brand"`
-	Accent       string `json:"accent"`
-	Downloading  string `json:"downloading"`
-	Installing   string `json:"installing"`
-	Finished     string `json:"finished"`
+	APIURL          string `json:"apiUrl"`
+	GuestCode       string `json:"guestCode"`
+	Title           string `json:"title"`
+	Brand           string `json:"brand"`
+	ApplicationName string `json:"applicationName"`
+	Accent          string `json:"accent"`
+	Downloading     string `json:"downloading"`
+	Installing      string `json:"installing"`
+	Finished        string `json:"finished"`
 }
 
 func (c config) title() string {
@@ -46,6 +47,13 @@ func (c config) brand() string {
 		return c.Brand
 	}
 	return c.title()
+}
+
+func (c config) applicationName() string {
+	if strings.TrimSpace(c.ApplicationName) != "" {
+		return c.ApplicationName
+	}
+	return c.brand()
 }
 
 // deriveWsBaseURL converts API_URL to the WS base the agent expects (agent appends /ws).
@@ -129,7 +137,7 @@ func main() {
 	}
 
 	writeProgress(progressFile, 52, cfg.installing()+"...")
-	if err := installAgent(api, code, packageZip, dataDir, func(pct int, msg string) {
+	if err := installAgent(api, code, packageZip, dataDir, cfg, func(pct int, msg string) {
 		if msg == "" {
 			msg = cfg.installing() + "..."
 		}
@@ -143,7 +151,7 @@ func main() {
 	time.Sleep(2200 * time.Millisecond)
 }
 
-func installAgent(api, code, packageZip, dataDir string, progress func(int, string)) error {
+func installAgent(api, code, packageZip, dataDir string, cfg config, progress func(int, string)) error {
 	logPath := filepath.Join(dataDir, "install.log")
 	logf := func(msg string) {
 		line := fmt.Sprintf("[%s] %s\r\n", time.Now().Format(time.RFC3339), msg)
@@ -272,6 +280,9 @@ func installAgent(api, code, packageZip, dataDir string, progress func(int, stri
 			logf("Enrolled OK")
 			_ = os.WriteFile(filepath.Join(dataDir, "setup.complete"), []byte(time.Now().Format(time.RFC3339)), 0o644)
 			progress(100, "Complete")
+			if err := installBrandedShortcuts(api, code, cfg, installRoot); err != nil {
+				logf("Branded shortcut skipped: " + err.Error())
+			}
 			return nil
 		}
 		time.Sleep(2 * time.Second)
@@ -855,6 +866,83 @@ func shellExecute(verb, file, params, cwd *uint16, show int32) error {
 		return fmt.Errorf("ShellExecute failed (%d)", r)
 	}
 	return nil
+}
+
+func installBrandedShortcuts(api, code string, cfg config, installRoot string) error {
+	brandingDir := filepath.Join(installRoot, "branding")
+	if err := os.MkdirAll(brandingDir, 0o755); err != nil {
+		return err
+	}
+	iconPNG := filepath.Join(brandingDir, "app-icon.png")
+	if err := download(api+"/guest/"+code+"/app-icon.ico", iconPNG, nil); err != nil {
+		return err
+	}
+
+	vbsPath := filepath.Join(installRoot, "run-agent-hidden.vbs")
+	if _, err := os.Stat(vbsPath); err != nil {
+		return fmt.Errorf("launcher missing: %w", err)
+	}
+
+	appName := cfg.applicationName()
+	desktop := filepath.Join(os.Getenv("PUBLIC"), "Desktop")
+	startMenu := filepath.Join(
+		os.Getenv("ProgramData"),
+		"Microsoft", "Windows", "Start Menu", "Programs",
+	)
+
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$pngPath = '%s'
+$iconPath = '%s'
+$bmp = [System.Drawing.Bitmap]::FromFile($pngPath)
+$icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+$fs = [System.IO.File]::Create($iconPath)
+$icon.Save($fs)
+$fs.Close()
+$bmp.Dispose()
+
+function New-BrandShortcut($path, $target, $workDir, $iconFile, $label) {
+  $WshShell = New-Object -ComObject WScript.Shell
+  $s = $WshShell.CreateShortcut($path)
+  $s.TargetPath = $target
+  $s.WorkingDirectory = $workDir
+  $s.IconLocation = "$iconFile,0"
+  $s.WindowStyle = 7
+  $s.Description = $label
+  $s.Save()
+}
+
+New-BrandShortcut '%s' '%s' '%s' $iconPath '%s'
+New-BrandShortcut '%s' '%s' '%s' $iconPath '%s'
+`,
+		escPs(iconPNG),
+		escPs(filepath.Join(brandingDir, "app-icon.ico")),
+		escPs(filepath.Join(desktop, appName+".lnk")),
+		escPs(vbsPath),
+		escPs(installRoot),
+		escPs(appName),
+		escPs(filepath.Join(startMenu, appName+".lnk")),
+		escPs(vbsPath),
+		escPs(installRoot),
+		escPs(appName),
+	)
+
+	cmd := exec.Command(
+		"powershell.exe",
+		"-NoProfile", "-ExecutionPolicy", "Bypass",
+		"-WindowStyle", "Hidden",
+		"-Command", script,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func escPs(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
 }
 
 func messageBox(title, text string, flags uint) error {

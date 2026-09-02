@@ -4,6 +4,8 @@ export type {
   AuditLog,
   CursorPage,
   Device,
+  DeviceMetadata,
+  DeviceMetrics,
   EntityId,
   Invitation,
   Notification,

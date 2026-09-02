@@ -81,6 +81,10 @@ export class AgentConnection {
     this.send(WS_EVENTS.screenMeta, data);
   }
 
+  sendClipboard(sessionId: string, text: string): void {
+    this.send(WS_EVENTS.clipboardSync, { sessionId, text });
+  }
+
   isOpen(): boolean {
     return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
   }

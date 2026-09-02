@@ -352,7 +352,14 @@ export class DevicesService {
       ...(data.ip ? { lastIp: data.ip } : {}),
       ...(data.hostname ? { hostname: data.hostname } : {}),
       ...(data.osVersion ? { osVersion: data.osVersion } : {}),
-      ...(data.metadata ? { metadata: data.metadata } : {}),
+      ...(data.metadata
+        ? {
+            metadata: {
+              ...((device.metadata as Record<string, unknown> | null) ?? {}),
+              ...(data.metadata as Record<string, unknown>),
+            },
+          }
+        : {}),
     });
 
     return { ok: true, serverTime: new Date().toISOString() };

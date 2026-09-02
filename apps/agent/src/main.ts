@@ -7,7 +7,7 @@ import { AgentConnection } from './connection.js';
 import { HeartbeatService } from './heartbeat.js';
 import { CommandHandler } from './commands.js';
 import { Streamer } from './stream.js';
-import { getStaticSystemInfo } from './system/info.js';
+import { getStaticSystemInfo, listLocalIpAddresses, sampleDiskUsage, sampleRuntime } from './system/info.js';
 import { acquireSingleInstance, releaseSingleInstance } from './single-instance.js';
 import { createLogger } from './logger.js';
 import { ensureGuestCursorVisible } from './capture/input.js';
@@ -138,7 +138,12 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       }
     },
   });
-  const commands = new CommandHandler({ deviceId: state.deviceId, env, streamer });
+  const commands = new CommandHandler({
+    deviceId: state.deviceId,
+    env,
+    streamer,
+    sendClipboard: (sessionId, text) => connection.sendClipboard(sessionId, text),
+  });
   connection = new AgentConnection({
     wsUrl: (() => {
       const base = wsBase.replace(/\/$/, '');
@@ -155,14 +160,31 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   const heartbeat = new HeartbeatService({
     intervalMs: state.heartbeatIntervalMs || env.AGENT_HEARTBEAT_INTERVAL_MS,
     send: (payload) => connection.sendHeartbeat(payload),
-    collect: async () => ({
-      agentVersion: AGENT_VERSION,
-      metadata: {
-        hostname: info.hostname,
-        platform: info.platform,
-        osVersion: info.osVersion,
-      },
-    }),
+    collect: async () => {
+      const [runtime, disk, ipAddresses] = await Promise.all([
+        Promise.resolve(sampleRuntime()),
+        sampleDiskUsage(),
+        listLocalIpAddresses(),
+      ]);
+      return {
+        agentVersion: AGENT_VERSION,
+        metadata: {
+          hostname: info.hostname,
+          platform: info.platform,
+          osVersion: info.osVersion,
+          metrics: {
+            cpuPercent: runtime.cpuPercent,
+            memoryUsedMb: runtime.memoryUsedMb,
+            memoryTotalMb: runtime.memoryTotalMb,
+            diskUsedMb: disk.diskUsedMb,
+            diskTotalMb: disk.diskTotalMb,
+            uptimeSeconds: runtime.uptimeSeconds,
+            ipAddresses,
+            sampledAt: new Date().toISOString(),
+          },
+        },
+      };
+    },
   });
 
   connection.onAuthenticated(() => {

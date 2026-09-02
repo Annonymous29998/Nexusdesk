@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button, Modal, ModalBody, useToast } from '@nexusdesk/ui';
 import { DeviceStatus } from '@nexusdesk/types';
 import { DeviceStatusBadge, LoadingBlock, PageHeader, StatCard } from '@/components/common/ui';
+import { DeviceMetricsPanel } from '@/components/devices/DeviceMetricsPanel';
 import { useDeleteDevice, useDevice } from '@/hooks/useDevices';
 import { useSessions, useStartSession } from '@/hooks/useSessions';
 import { SessionRow } from '@/components/sessions/SessionRow';
@@ -84,6 +85,8 @@ export function DeviceDetailPage() {
         <StatCard label="Last seen" value={formatRelative(device.lastSeenAt)} />
       </div>
 
+      <DeviceMetricsPanel metrics={device.metadata?.metrics} />
+
       <section className="mt-6 rounded-nd-xl border border-border bg-card/80 p-4">
         <h2 className="font-display text-lg font-semibold">Inventory</h2>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
@@ -95,6 +98,24 @@ export function DeviceDetailPage() {
             <dt className="text-muted-foreground">Enrolled</dt>
             <dd className="mt-1">{formatDate(device.createdAt)}</dd>
           </div>
+          {device.metadata?.cpuModel ? (
+            <div>
+              <dt className="text-muted-foreground">CPU</dt>
+              <dd className="mt-1">{device.metadata.cpuModel}</dd>
+            </div>
+          ) : null}
+          {device.metadata?.arch ? (
+            <div>
+              <dt className="text-muted-foreground">Architecture</dt>
+              <dd className="mt-1">{device.metadata.arch}</dd>
+            </div>
+          ) : null}
+          {device.metadata?.totalMemoryMb ? (
+            <div>
+              <dt className="text-muted-foreground">Installed RAM</dt>
+              <dd className="mt-1">{device.metadata.totalMemoryMb} MB</dd>
+            </div>
+          ) : null}
           <div className="sm:col-span-2">
             <dt className="text-muted-foreground">Tags</dt>
             <dd className="mt-1 flex flex-wrap gap-1">

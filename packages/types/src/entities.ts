@@ -61,6 +61,28 @@ export interface User extends Timestamps, SoftDelete {
   isActive: boolean;
 }
 
+/** Live telemetry sampled by the agent and reported on each heartbeat. */
+export interface DeviceMetrics {
+  cpuPercent: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  diskUsedMb: number;
+  diskTotalMb: number;
+  uptimeSeconds: number;
+  ipAddresses: string[];
+  sampledAt: string;
+}
+
+/** Free-form device metadata. Enrollment stores hardware facts; heartbeats add `metrics`. */
+export interface DeviceMetadata {
+  arch?: string;
+  cpuModel?: string;
+  totalMemoryMb?: string;
+  guestLinkId?: string;
+  metrics?: DeviceMetrics;
+  [key: string]: unknown;
+}
+
 export interface Device extends Timestamps, SoftDelete {
   id: string;
   organizationId: string;
@@ -73,7 +95,7 @@ export interface Device extends Timestamps, SoftDelete {
   lastSeenAt: string | null;
   lastIp: string | null;
   tags: string[];
-  metadata: Record<string, string>;
+  metadata: DeviceMetadata;
   enrolledByUserId: string | null;
   publicKey: string | null;
 }

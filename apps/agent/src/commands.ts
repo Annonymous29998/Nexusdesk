@@ -5,6 +5,7 @@ import { createLogger } from './logger.js';
 import { captureScreenFrame } from './capture/screen.js';
 import { compressFrame } from './capture/encoder.js';
 import { handleRemoteInput, lockInput, unlockInput, prepareWindowsInput, type RemoteInputEvent } from './capture/input.js';
+import { getRemoteClipboardText, pasteToRemoteClipboard } from './capture/clipboard.js';
 import { sendWakeOnLan } from './system/wol.js';
 import { runTerminalCommand } from './system/terminal.js';
 import { checkForUpdate } from './update.js';
@@ -15,6 +16,7 @@ export interface CommandHandlerOptions {
   deviceId: string;
   env: AgentEnv;
   streamer: Streamer;
+  sendClipboard: (sessionId: string, text: string) => void;
 }
 
 interface AgentCommand {
@@ -78,6 +80,17 @@ export class CommandHandler {
         case 'input': {
           const payload = command.payload as unknown as RemoteInputEvent;
           if (payload?.kind) {
+            if (payload.kind === 'clipboard-paste') {
+              const text = String(payload.text ?? '');
+              if (text) await pasteToRemoteClipboard(text);
+              return;
+            }
+            if (payload.kind === 'clipboard-pull') {
+              const text = await getRemoteClipboardText();
+              const sessionId = String(payload.sessionId ?? '');
+              if (sessionId) this.options.sendClipboard(sessionId, text);
+              return;
+            }
             if (payload.kind !== 'mouse-move') {
               log.info({ kind: payload.kind, x: payload.x, y: payload.y }, 'remote input');
             }

@@ -25,6 +25,11 @@ export interface RuntimeSample {
   memoryTotalMb: number;
 }
 
+export interface DiskSample {
+  diskUsedMb: number;
+  diskTotalMb: number;
+}
+
 export function detectPlatform(): DevicePlatform {
   switch (platform()) {
     case 'win32':
@@ -121,6 +126,30 @@ export async function listMonitors(): Promise<MonitorInfo[]> {
   }
 
   return [{ id: 'display-0', width: 1920, height: 1080, isPrimary: true }];
+}
+
+/**
+ * Aggregate disk usage across mounted volumes. Uses the optional
+ * `systeminformation` package when available; otherwise reports zeros so the
+ * heartbeat still succeeds on minimal installs.
+ */
+export async function sampleDiskUsage(): Promise<DiskSample> {
+  try {
+    const si = await import('systeminformation');
+    const volumes = await si.default.fsSize();
+
+    let usedBytes = 0;
+    let totalBytes = 0;
+    for (const vol of volumes) {
+      totalBytes += vol.size ?? 0;
+      usedBytes += vol.used ?? 0;
+    }
+
+    const toMb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+    return { diskUsedMb: toMb(usedBytes), diskTotalMb: toMb(totalBytes) };
+  } catch {
+    return { diskUsedMb: 0, diskTotalMb: 0 };
+  }
 }
 
 /** Local (non-public) IPv4/IPv6 addresses across all network interfaces. */

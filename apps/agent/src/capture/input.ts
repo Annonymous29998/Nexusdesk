@@ -21,6 +21,9 @@ export interface RemoteInputEvent {
   button?: string;
   deltaY?: number;
   key?: string;
+  code?: string;
+  text?: string;
+  sessionId?: string;
 }
 
 interface WinApi {
@@ -102,7 +105,53 @@ const WIN_KEY_MAP: Record<string, number> = {
   PageUp: 0x21,
   PageDown: 0x22,
   ' ': 0x20,
+  Control: 0x11,
+  Shift: 0x10,
+  Alt: 0x12,
+  Meta: 0x5b,
+  CapsLock: 0x14,
+  Insert: 0x2d,
+  F1: 0x70,
+  F2: 0x71,
+  F3: 0x72,
+  F4: 0x73,
+  F5: 0x74,
+  F6: 0x75,
+  F7: 0x76,
+  F8: 0x77,
+  F9: 0x78,
+  F10: 0x79,
+  F11: 0x7a,
+  F12: 0x7b,
 };
+
+const CODE_TO_VK: Record<string, number> = (() => {
+  const map: Record<string, number> = {};
+  for (let i = 0; i < 26; i++) {
+    map[`Key${String.fromCharCode(65 + i)}`] = 0x41 + i;
+  }
+  for (let i = 0; i <= 9; i++) {
+    map[`Digit${i}`] = 0x30 + i;
+  }
+  map.ControlLeft = 0x11;
+  map.ControlRight = 0x11;
+  map.ShiftLeft = 0x10;
+  map.ShiftRight = 0x10;
+  map.AltLeft = 0x12;
+  map.AltRight = 0x12;
+  map.MetaLeft = 0x5b;
+  map.MetaRight = 0x5c;
+  return map;
+})();
+
+function resolveVirtualKey(key: string, code?: string): number | undefined {
+  let vk = WIN_KEY_MAP[key];
+  if (vk === undefined && code) vk = CODE_TO_VK[code];
+  if (vk === undefined && key.length === 1) {
+    vk = key.toUpperCase().charCodeAt(0);
+  }
+  return vk;
+}
 
 const MOUSEEVENTF_MOVE = 0x0001;
 const MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -210,11 +259,7 @@ async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): 
   }
 
   if (event.kind === 'key-down' || event.kind === 'key-up') {
-    const key = event.key ?? '';
-    let vk = WIN_KEY_MAP[key];
-    if (vk === undefined && key.length === 1) {
-      vk = key.toUpperCase().charCodeAt(0);
-    }
+    const vk = resolveVirtualKey(event.key ?? '', event.code);
     if (vk !== undefined) {
       const flags = event.kind === 'key-up' ? 0x0002 : 0;
       api.keybd_event(vk, 0, flags, 0);
@@ -286,8 +331,14 @@ export async function handleRemoteInput(event: RemoteInputEvent): Promise<void> 
     }
     if (event.kind === 'mouse-down') robot.mouseToggle('down', event.button ?? 'left');
     if (event.kind === 'mouse-up') robot.mouseToggle('up', event.button ?? 'left');
-    if (event.kind === 'key-down' && event.key) robot.keyToggle(event.key, 'down');
-    if (event.kind === 'key-up' && event.key) robot.keyToggle(event.key, 'up');
+    if (event.kind === 'key-down' && event.key) {
+      const mod = mapRobotModifier(event.key);
+      robot.keyToggle(mod ?? event.key, 'down');
+    }
+    if (event.kind === 'key-up' && event.key) {
+      const mod = mapRobotModifier(event.key);
+      robot.keyToggle(mod ?? event.key, 'up');
+    }
   } catch (err) {
     log.warn({ err, kind: event.kind }, 'input injection failed');
   }
@@ -314,4 +365,31 @@ export async function injectMouseMove(x: number, y: number): Promise<void> {
 export async function injectKeyTap(key: string): Promise<void> {
   await handleRemoteInput({ kind: 'key-down', key });
   await handleRemoteInput({ kind: 'key-up', key });
+}
+
+function mapRobotModifier(key: string): string | null {
+  switch (key) {
+    case 'Control':
+      return 'control';
+    case 'Shift':
+      return 'shift';
+    case 'Alt':
+      return 'alt';
+    case 'Meta':
+      return 'command';
+    default:
+      return null;
+  }
+}
+
+/** Press a key while holding modifiers (e.g. Ctrl+V). */
+export async function injectShortcut(key: string, modifiers: string[]): Promise<void> {
+  for (const mod of modifiers) {
+    await handleRemoteInput({ kind: 'key-down', key: mod });
+  }
+  await handleRemoteInput({ kind: 'key-down', key });
+  await handleRemoteInput({ kind: 'key-up', key });
+  for (const mod of [...modifiers].reverse()) {
+    await handleRemoteInput({ kind: 'key-up', key: mod });
+  }
 }

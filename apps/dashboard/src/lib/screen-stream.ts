@@ -18,16 +18,27 @@ export interface ScreenStreamOptions {
   deviceId: string;
   onStatus?: (status: StreamStatus, detail?: string) => void;
   onFrame?: (jpegBase64: string) => void;
+  onClipboard?: (text: string) => void;
 }
 
 export interface InputEvent {
-  kind: 'mouse-move' | 'mouse-down' | 'mouse-up' | 'wheel' | 'key-down' | 'key-up';
+  kind:
+    | 'mouse-move'
+    | 'mouse-down'
+    | 'mouse-up'
+    | 'wheel'
+    | 'key-down'
+    | 'key-up'
+    | 'clipboard-paste'
+    | 'clipboard-pull';
   /** Normalised 0..1 coordinates relative to the streamed image. */
   x?: number;
   y?: number;
   button?: 'left' | 'right' | 'middle';
   deltaY?: number;
   key?: string;
+  code?: string;
+  text?: string;
 }
 
 /**
@@ -127,6 +138,14 @@ export class ScreenStreamClient {
         return;
       }
 
+      if (msg.event === WS_EVENTS.clipboardSync) {
+        const text = msg.data?.text;
+        if (typeof text === 'string') {
+          this.options.onClipboard?.(text);
+        }
+        return;
+      }
+
       if (msg.event === WS_EVENTS.authError) {
         this.options.onStatus?.('error', String(msg.data?.message ?? 'Auth failed'));
       }
@@ -194,6 +213,16 @@ export class ScreenStreamClient {
       event: WS_EVENTS.inputEvent,
       data: { sessionId: this.options.sessionId, ...input },
     });
+  }
+
+  /** Ask the remote agent to return its OS clipboard (after Ctrl+C on guest). */
+  requestRemoteClipboard(): void {
+    this.sendInput({ kind: 'clipboard-pull' });
+  }
+
+  /** Paste local text into the remote session. */
+  pasteToRemote(text: string): void {
+    this.sendInput({ kind: 'clipboard-paste', text });
   }
 
   private send(payload: unknown): void {

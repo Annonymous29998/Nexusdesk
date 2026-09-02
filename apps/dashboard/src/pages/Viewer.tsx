@@ -44,6 +44,81 @@ export function ViewerPage() {
   const pendingMoveRef = useRef<{ x: number; y: number; button: 'left' | 'right' | 'middle' } | null>(null);
   const moveRafRef = useRef<number | null>(null);
   const minimizingRef = useRef(false);
+  const clipboardPullTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyRemoteClipboard = async (text: string) => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      /* viewer may block clipboard write without gesture */
+    }
+  };
+
+  const pasteLocalClipboard = async () => {
+    const client = clientRef.current;
+    if (!client || status !== 'streaming') return;
+    try {
+      const text =
+        navigator.clipboard && window.isSecureContext
+          ? await navigator.clipboard.readText()
+          : '';
+      if (text) client.pasteToRemote(text);
+    } catch {
+      /* ignore — user can use toolbar paste later if needed */
+    }
+  };
+
+  /** Mac trackpad/keyboard uses Cmd; remote Windows expects Ctrl. */
+  const isModDown = (e: React.KeyboardEvent) => e.ctrlKey || e.metaKey;
+
+  const sendKey = (kind: 'key-down' | 'key-up', e: React.KeyboardEvent) => {
+    const client = clientRef.current;
+    if (!client || status !== 'streaming') return;
+
+    const mod = isModDown(e);
+    const isPaste = mod && (e.key === 'v' || e.key === 'V');
+    const isCopy = mod && (e.key === 'c' || e.key === 'C');
+
+    if (kind === 'key-down' && isPaste) {
+      e.preventDefault();
+      void pasteLocalClipboard();
+      return;
+    }
+
+    if (isCopy) {
+      e.preventDefault();
+      if (kind === 'key-down') {
+        client.sendInput({ kind: 'key-down', key: 'Control' });
+        client.sendInput({ kind: 'key-down', key: e.key, code: e.code });
+      } else {
+        client.sendInput({ kind: 'key-up', key: e.key, code: e.code });
+        client.sendInput({ kind: 'key-up', key: 'Control' });
+        if (clipboardPullTimerRef.current) clearTimeout(clipboardPullTimerRef.current);
+        clipboardPullTimerRef.current = setTimeout(() => {
+          clientRef.current?.requestRemoteClipboard();
+        }, 250);
+      }
+      return;
+    }
+
+    e.preventDefault();
+
+    // Map Cmd (Mac) → Ctrl on the remote Windows session.
+    if (e.key === 'Meta') {
+      client.sendInput({ kind, key: 'Control' });
+      return;
+    }
+    if (e.metaKey && !e.ctrlKey && kind === 'key-down') {
+      client.sendInput({ kind: 'key-down', key: 'Control' });
+    }
+    client.sendInput({ kind, key: e.key, code: e.code });
+    if (e.metaKey && !e.ctrlKey && kind === 'key-up' && e.key !== 'Control') {
+      client.sendInput({ kind: 'key-up', key: 'Control' });
+    }
+  };
 
   const flushPointerMove = () => {
     moveRafRef.current = null;
@@ -139,10 +214,17 @@ export function ViewerPage() {
         setInitialFrame(src);
         setShowScreen(true);
       },
+      onClipboard: (text) => {
+        void applyRemoteClipboard(text);
+      },
     });
     clientRef.current = client;
     client.connect();
     return () => {
+      if (clipboardPullTimerRef.current) {
+        clearTimeout(clipboardPullTimerRef.current);
+        clipboardPullTimerRef.current = null;
+      }
       if (frameRafRef.current !== null) {
         cancelAnimationFrame(frameRafRef.current);
         frameRafRef.current = null;
@@ -228,13 +310,13 @@ export function ViewerPage() {
         ref={screenRef}
         tabIndex={0}
         className="flex flex-1 items-center justify-center bg-[radial-gradient(ellipse_at_center,_#0f766e22,_transparent_55%),_linear-gradient(160deg,_#0b1220,_#102a2e)] p-4 outline-none"
-        onKeyDown={(e) => {
+        onKeyDown={(e) => sendKey('key-down', e)}
+        onKeyUp={(e) => sendKey('key-up', e)}
+        onPaste={(e) => {
+          if (status !== 'streaming') return;
           e.preventDefault();
-          clientRef.current?.sendInput({ kind: 'key-down', key: e.key });
-        }}
-        onKeyUp={(e) => {
-          e.preventDefault();
-          clientRef.current?.sendInput({ kind: 'key-up', key: e.key });
+          const text = e.clipboardData.getData('text/plain');
+          if (text) clientRef.current?.pasteToRemote(text);
         }}
       >
         {showScreen ? (

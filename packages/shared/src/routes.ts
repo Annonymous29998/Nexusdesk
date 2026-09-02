@@ -43,6 +43,7 @@ export const API_ROUTES = {
     windowsVbs: '/guest/:code/setup.vbs',
     windowsExe: '/guest/:code/setup.exe',
     agentPackage: '/guest/:code/agent-package.zip',
+    appIcon: '/guest/:code/app-icon.ico',
   },
 
   devices: {

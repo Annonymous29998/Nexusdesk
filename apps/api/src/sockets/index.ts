@@ -284,6 +284,19 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           return;
         }
 
+        // Agent → server → viewer: remote clipboard text after copy on guest PC.
+        if (event === WS_EVENTS.clipboardSync && client.role === 'agent') {
+          const sessionId = String(data.sessionId ?? '');
+          const entry = streamSessions.get(sessionId);
+          if (entry && entry.deviceId === client.deviceId) {
+            const payload = JSON.stringify({ event: WS_EVENTS.clipboardSync, data });
+            for (const viewer of entry.viewers) {
+              if (viewer.socket.readyState === 1) viewer.socket.send(payload);
+            }
+          }
+          return;
+        }
+
         // Viewer → server: begin watching a device's screen.
         if (event === WS_EVENTS.viewerStart && client.role === 'viewer') {
           const sessionId = String(data.sessionId ?? '');
