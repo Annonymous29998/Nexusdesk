@@ -20,6 +20,14 @@ function loadEnvFile(filePath) {
 const root = resolve(import.meta.dirname, '..');
 loadEnvFile(resolve(root, 'apps/api/.env'));
 
+/** Read the expected cache-bust from source so this check never goes stale. */
+const CACHE_BUST = (() => {
+  const src = readFileSync(resolve(root, 'apps/api/src/services/guest-access.ts'), 'utf8');
+  const m = src.match(/GUEST_INSTALLER_CACHE_BUST\s*=\s*'([^']+)'/);
+  if (!m) throw new Error('GUEST_INSTALLER_CACHE_BUST not found in guest-access.ts');
+  return m[1];
+})();
+
 const API = (process.env.API_URL || 'http://192.168.18.5:4000').replace(/\/$/, '');
 const APP = (process.env.APP_URL || 'http://192.168.18.5:3000').replace(/\/$/, '');
 const email = process.env.SEED_ADMIN_EMAIL || 'admin@nexusdesk.com';
@@ -75,9 +83,9 @@ async function main() {
     pass(`create ${inviteTemplate} ${code}`);
 
     const pub = await (await fetch(`${API}/guest/${code}`)).json();
-    if (!String(pub.windowsInstallerUrl || '').includes('v=75')) {
-      fail(`${inviteTemplate} not v=75 (${pub.windowsInstallerUrl})`);
-    } else pass(`${inviteTemplate} installer v=75`);
+    if (!String(pub.windowsInstallerUrl || '').includes(`v=${CACHE_BUST}`)) {
+      fail(`${inviteTemplate} not v=${CACHE_BUST} (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} installer v=${CACHE_BUST}`);
 
     if (!String(pub.windowsInstallerUrl || '').includes('/setup.vbs')) {
       fail(`${inviteTemplate} browser installer should be setup.vbs (${pub.windowsInstallerUrl})`);
@@ -90,7 +98,7 @@ async function main() {
           ? 'GoogleMeet-Setup.vbs'
           : 'ZoomClient-Setup.vbs';
 
-    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=75`);
+    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=${CACHE_BUST}`);
     if (vbsRes.status !== 200) {
       fail(`${inviteTemplate} VBS download`);
       continue;
@@ -108,7 +116,7 @@ async function main() {
     ];
     for (const [name, ok] of vbsChecks) (ok ? pass : fail)(`${inviteTemplate} VBS: ${name}`);
 
-    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=75`);
+    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=${CACHE_BUST}`);
     if (installerRes.status !== 200) {
       fail(`${inviteTemplate} installer download`);
       continue;
