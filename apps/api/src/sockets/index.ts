@@ -7,6 +7,9 @@ import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('socket');
 
+/** Drop frames to a viewer once its send buffer is backed up (~2-3 frames) to keep the stream live. */
+const MAX_VIEWER_FRAME_BUFFER_BYTES = 256 * 1024;
+
 type PeerRole = 'viewer' | 'agent';
 
 interface SocketClient {
@@ -255,7 +258,11 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           if (entry && entry.deviceId === client.deviceId) {
             const payload = JSON.stringify({ event: WS_EVENTS.screenFrame, data });
             for (const viewer of entry.viewers) {
-              if (viewer.socket.readyState === 1) viewer.socket.send(payload);
+              // Drop the frame for any viewer whose socket is backed up so latency
+              // stays real-time instead of queueing on a slow connection.
+              if (viewer.socket.readyState === 1 && viewer.socket.bufferedAmount <= MAX_VIEWER_FRAME_BUFFER_BYTES) {
+                viewer.socket.send(payload);
+              }
             }
           }
           return;
