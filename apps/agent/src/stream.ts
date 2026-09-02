@@ -17,7 +17,7 @@ export interface StreamerOptions {
   fps: number;
   quality: number;
   maxWidth: number;
-  /** Hide guest cursor and skip mouse-move injection while streaming. */
+  /** Hide guest cursor while streaming. Mouse-move is always injected. */
   stealthInput?: boolean;
   send: (sessionId: string, frame: StreamFrame) => void;
   /** Return true when the connection is backed up, so we skip capturing a frame we'd only drop. */

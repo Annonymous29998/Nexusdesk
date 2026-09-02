@@ -53,10 +53,7 @@ export async function syncPhysicalInputScreenSize(): Promise<void> {
   const api = await loadWinApi();
   if (!api) return;
   api.SetProcessDPIAware();
-  setInputScreenSize(
-    Math.max(1, api.GetSystemMetrics(0)),
-    Math.max(1, api.GetSystemMetrics(1)),
-  );
+  setInputScreenSize(Math.max(1, api.GetSystemMetrics(0)), Math.max(1, api.GetSystemMetrics(1)));
 }
 
 /** Ensure a visible cursor after a crash or aborted session. */
@@ -245,8 +242,22 @@ async function loadWinApi(): Promise<WinApi | null> {
   }
 }
 
-function absoluteMove(api: WinApi, px: number, py: number): void {
+function toAbsolute(
+  px: number,
+  py: number,
+  screenW: number,
+  screenH: number,
+): { ax: number; ay: number } {
+  return {
+    ax: Math.round((px / Math.max(1, screenW - 1)) * 65535),
+    ay: Math.round((py / Math.max(1, screenH - 1)) * 65535),
+  };
+}
+
+function absoluteMove(api: WinApi, px: number, py: number, screenW: number, screenH: number): void {
+  const { ax, ay } = toAbsolute(px, py, screenW, screenH);
   api.SetCursorPos(px, py);
+  api.mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, ax, ay, 0, 0);
 }
 
 async function hideSystemCursor(): Promise<void> {
@@ -282,19 +293,25 @@ export async function onRemoteSessionEnd(): Promise<void> {
   if (platform() === 'win32') await showSystemCursor();
 }
 
-async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): Promise<boolean> {
+async function winInjectKoffi(
+  event: RemoteInputEvent,
+  px: number,
+  py: number,
+  screenW: number,
+  screenH: number,
+): Promise<boolean> {
   const api = await loadWinApi();
   if (!api) return false;
 
   syncHeldButtons(event);
 
   if (event.kind === 'mouse-move') {
-    absoluteMove(api, px, py);
+    absoluteMove(api, px, py, screenW, screenH);
     if (isPointerDragging(event)) {
       api.mouse_event(dragMouseFlags(), 0, 0, 0, 0);
     }
   } else if (event.kind === 'mouse-down' || event.kind === 'mouse-up') {
-    absoluteMove(api, px, py);
+    absoluteMove(api, px, py, screenW, screenH);
     const down = event.kind === 'mouse-down';
     const btn = event.button ?? 'left';
     const flag =
@@ -313,7 +330,7 @@ async function winInjectKoffi(event: RemoteInputEvent, px: number, py: number): 
   }
 
   if (event.kind === 'wheel') {
-    absoluteMove(api, px, py);
+    absoluteMove(api, px, py, screenW, screenH);
     const delta = Math.round((event.deltaY ?? 0) * -1);
     const wheel = delta === 0 ? 0 : Math.sign(delta) * Math.max(120, Math.abs(delta));
     api.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheel, 0);
@@ -345,7 +362,7 @@ async function winInjectPowerShell(event: RemoteInputEvent, px: number, py: numb
   const upFlag = btn === 'right' ? 16 : btn === 'middle' ? 64 : 4;
   const flag = down ? downFlag : upFlag;
   const script = [
-    "Add-Type -AssemblyName System.Windows.Forms",
+    'Add-Type -AssemblyName System.Windows.Forms',
     "Add-Type -TypeDefinition @'",
     'using System;using System.Runtime.InteropServices;',
     'public class NdClick {',
@@ -377,14 +394,13 @@ export async function prepareWindowsInput(): Promise<void> {
 export async function handleRemoteInput(event: RemoteInputEvent): Promise<void> {
   if (locked) return;
   syncHeldButtons(event);
-  if (stealthInput && event.kind === 'mouse-move' && !isPointerDragging(event)) return;
   const { width, height } = await getScreenSize();
   const px = Math.max(0, Math.min(width - 1, Math.round((event.x ?? 0) * width)));
   const py = Math.max(0, Math.min(height - 1, Math.round((event.y ?? 0) * height)));
 
   try {
     if (platform() === 'win32') {
-      const ok = await winInjectKoffi(event, px, py);
+      const ok = await winInjectKoffi(event, px, py, width, height);
       if (!ok) await winInjectPowerShell(event, px, py);
       return;
     }

@@ -69,14 +69,12 @@ export function ViewerPage() {
   const [showScreen, setShowScreen] = useState(false);
   const [webrtcReady, setWebrtcReady] = useState(false);
   const [streamEpoch, setStreamEpoch] = useState(0);
-  const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const pendingStreamRef = useRef<MediaStream | null>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
-  const streamingRef = useRef(false);
   const pendingMoveRef = useRef<{
     x: number;
     y: number;
@@ -174,7 +172,7 @@ export function ViewerPage() {
     }
     const pending = pendingMoveRef.current;
     const client = clientRef.current;
-    if (pending && client && streamingRef.current) {
+    if (pending && client) {
       client.sendInput({
         kind: 'mouse-move',
         x: pending.x,
@@ -190,7 +188,7 @@ export function ViewerPage() {
     moveRafRef.current = null;
     const pending = pendingMoveRef.current;
     const client = clientRef.current;
-    if (!pending || !client || !streamingRef.current) return;
+    if (!pending || !client) return;
     client.sendInput({
       kind: 'mouse-move',
       x: pending.x,
@@ -203,7 +201,7 @@ export function ViewerPage() {
   const sendPointer = (e: React.PointerEvent, kind: 'mouse-move' | 'mouse-down' | 'mouse-up') => {
     const client = clientRef.current;
     const el = e.currentTarget as HTMLElement;
-    if (!client || !el || status !== 'streaming') return;
+    if (!client || !el || !showScreen) return;
     const video = videoRef.current;
     const content =
       webrtcReady && video && video.videoWidth >= 16
@@ -212,7 +210,6 @@ export function ViewerPage() {
     const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
     if (!mapped) return;
     const { x, y } = mapped;
-    setLocalPointer({ x, y });
     const button = pointerButton(e);
     const buttons = e.buttons;
     if (kind === 'mouse-move') {
@@ -262,7 +259,6 @@ export function ViewerPage() {
       sessionId,
       deviceId,
       onStatus: (s, d) => {
-        streamingRef.current = s === 'streaming';
         setStatus((prev) => (prev === s ? prev : s));
         setDetail((prev) => (prev === d ? prev : d));
       },
@@ -398,7 +394,7 @@ export function ViewerPage() {
       <div
         ref={screenRef}
         tabIndex={0}
-        className="relative flex flex-1 items-center justify-center bg-[radial-gradient(ellipse_at_center,_#0f766e22,_transparent_55%),_linear-gradient(160deg,_#0b1220,_#102a2e)] p-4 outline-none"
+        className="relative flex flex-1 cursor-none items-center justify-center bg-[radial-gradient(ellipse_at_center,_#0f766e22,_transparent_55%),_linear-gradient(160deg,_#0b1220,_#102a2e)] p-4 outline-none"
         onKeyDown={(e) => sendKey('key-down', e)}
         onKeyUp={(e) => sendKey('key-up', e)}
         onPaste={(e) => {
@@ -431,7 +427,7 @@ export function ViewerPage() {
           </div>
         )}
         <div
-          className="relative h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] max-h-full max-w-full touch-none"
+          className="relative h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] max-h-full max-w-full cursor-none touch-none"
           style={{ touchAction: 'none' }}
           onPointerMove={(e) => sendPointer(e, 'mouse-move')}
           onPointerDown={(e) => {
@@ -451,7 +447,6 @@ export function ViewerPage() {
           onPointerCancel={(e) => {
             sendPointer(e, 'mouse-up');
           }}
-          onPointerLeave={() => setLocalPointer(null)}
           onContextMenu={(e) => e.preventDefault()}
           onWheel={(e) => {
             e.preventDefault();
@@ -480,14 +475,8 @@ export function ViewerPage() {
             autoPlay
             playsInline
             muted
-            className={`pointer-events-none absolute inset-0 h-full w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl ${webrtcReady ? '' : 'invisible'}`}
+            className={`pointer-events-none absolute inset-0 h-full w-full select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl ${webrtcReady ? '' : 'invisible'}`}
           />
-          {localPointer ? (
-            <div
-              className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-teal-300 bg-teal-400/30 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
-              style={{ left: `${localPointer.x * 100}%`, top: `${localPointer.y * 100}%` }}
-            />
-          ) : null}
         </div>
       </div>
     </div>

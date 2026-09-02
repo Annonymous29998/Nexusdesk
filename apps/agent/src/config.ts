@@ -60,10 +60,10 @@ const envSchema = z.object({
   AGENT_CAPTURE_MAX_WIDTH: envInt.default(960),
   /** Screen transport: webrtc (default) uses H.264/VP8/VP9 when frames flow; JPEG is always started first so the operator sees the desktop. */
   AGENT_STREAM_MODE: z.enum(['webrtc', 'jpeg']).default('webrtc'),
-  /** Hide guest cursor and skip mouse-move injection while a viewer is connected. */
+  /** Hide the guest-side cursor. Mouse-move is always injected so the operator can aim and click. */
   AGENT_STEALTH_INPUT: z
     .enum(['true', 'false', '1', '0'])
-    .default('true')
+    .default('false')
     .transform((v) => v === 'true' || v === '1'),
   AGENT_UPDATE_URL: z.string().url().optional(),
   AGENT_UPDATE_CHECK_INTERVAL_MS: envInt.default(6 * 60 * 60 * 1000),
@@ -131,7 +131,7 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.23';
+export const AGENT_VERSION = '0.1.24';
 
 /** Prefer env WS_URL and migrate away from Vercel-proxied frontend WebSocket hosts. */
 export function resolveAgentWsUrl(stateWsUrl: string, envWsUrl: string): string {
