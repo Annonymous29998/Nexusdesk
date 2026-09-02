@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@nexusdesk/ui';
 import { Maximize2, Monitor, Wifi, WifiOff, X } from 'lucide-react';
 import { endSession } from '@/api/sessions';
+import {
+  RemoteScreenFrame,
+  type RemoteScreenFrameHandle,
+} from '@/components/viewer/RemoteScreenFrame';
 import { useOrgId } from '@/hooks/useDevices';
 import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
 import { useActiveViewerStore } from '@/stores/active-viewer';
@@ -18,18 +22,20 @@ export function MinimizedViewerDock() {
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [showScreen, setShowScreen] = useState(false);
+  const [webrtcReady, setWebrtcReady] = useState(false);
+  const [streamEpoch, setStreamEpoch] = useState(0);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const pendingStreamRef = useRef<MediaStream | null>(null);
-  const gotFirstFrameRef = useRef(false);
 
   useEffect(() => {
     if (!minimized) {
       clientRef.current?.close();
       clientRef.current = null;
-      gotFirstFrameRef.current = false;
       pendingStreamRef.current = null;
       setShowScreen(false);
+      setWebrtcReady(false);
       setStatus('idle');
       return;
     }
@@ -38,20 +44,18 @@ export function MinimizedViewerDock() {
       orgId: orgId ?? '',
       sessionId: minimized.sessionId,
       deviceId: minimized.deviceId,
-      onStatus: (s) => {
-        setStatus(s);
-        if (s === 'streaming') setShowScreen(true);
+      onStatus: (s) => setStatus(s),
+      onFrame: (jpeg) => {
+        frameRef.current?.setFrame(jpeg);
+        setShowScreen(true);
       },
       onVideoStream: (stream) => {
         pendingStreamRef.current = stream;
+        setStreamEpoch((n) => n + 1);
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;
           void video.play().catch(() => undefined);
-        }
-        if (!gotFirstFrameRef.current) {
-          gotFirstFrameRef.current = true;
-          setShowScreen(true);
         }
       },
     });
@@ -65,13 +69,30 @@ export function MinimizedViewerDock() {
   }, [minimized?.sessionId, minimized?.deviceId, orgId]);
 
   useEffect(() => {
-    if (!showScreen) return;
     const video = videoRef.current;
     const stream = pendingStreamRef.current;
     if (!video || !stream) return;
     if (video.srcObject !== stream) video.srcObject = stream;
     void video.play().catch(() => undefined);
-  }, [showScreen]);
+
+    let poll = 0;
+    const revealIfFramed = () => {
+      if (video.videoWidth < 16 || video.videoHeight < 16) return;
+      if (poll) window.clearInterval(poll);
+      poll = 0;
+      setWebrtcReady(true);
+      setShowScreen(true);
+    };
+    video.addEventListener('loadeddata', revealIfFramed);
+    video.addEventListener('resize', revealIfFramed);
+    poll = window.setInterval(revealIfFramed, 250);
+    revealIfFramed();
+    return () => {
+      video.removeEventListener('loadeddata', revealIfFramed);
+      video.removeEventListener('resize', revealIfFramed);
+      if (poll) window.clearInterval(poll);
+    };
+  }, [showScreen, streamEpoch]);
 
   if (!minimized) return null;
 
@@ -132,16 +153,22 @@ export function MinimizedViewerDock() {
         onClick={restore}
         aria-label="Restore full viewer"
       >
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="aspect-video w-full object-contain"
-        />
+        <div className="relative aspect-video w-full bg-black">
+          <RemoteScreenFrame
+            ref={frameRef}
+            className={`h-full w-full object-contain ${webrtcReady ? 'invisible' : ''}`}
+          />
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`absolute inset-0 h-full w-full object-contain ${webrtcReady ? '' : 'invisible'}`}
+          />
+        </div>
         {showScreen ? null : (
           <div className="absolute inset-0 flex aspect-video items-center justify-center text-xs text-slate-400">
-            Connecting WebRTC…
+            Connecting to remote screen…
           </div>
         )}
       </button>
