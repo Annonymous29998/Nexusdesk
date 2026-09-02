@@ -18,17 +18,18 @@ export function MinimizedViewerDock() {
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [showScreen, setShowScreen] = useState(false);
-  const [initialFrame, setInitialFrame] = useState<string | null>(null);
+  const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
-  const frameImgRef = useRef<HTMLImageElement>(null);
   const gotFirstFrameRef = useRef(false);
+  const pendingFrameRef = useRef<string | null>(null);
+  const frameRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!minimized) {
       clientRef.current?.close();
       clientRef.current = null;
       gotFirstFrameRef.current = false;
-      setInitialFrame(null);
+      setCurrentFrame(null);
       setShowScreen(false);
       setStatus('idle');
       return;
@@ -40,19 +41,30 @@ export function MinimizedViewerDock() {
       onStatus: (s) => setStatus(s),
       onFrame: (jpegBase64) => {
         const src = `data:image/jpeg;base64,${jpegBase64}`;
-        if (gotFirstFrameRef.current && frameImgRef.current) {
-          frameImgRef.current.src = src;
-          return;
+        pendingFrameRef.current = src;
+        if (!gotFirstFrameRef.current) {
+          gotFirstFrameRef.current = true;
+          setShowScreen(true);
         }
-        gotFirstFrameRef.current = true;
-        setInitialFrame(src);
-        setShowScreen(true);
+        if (frameRafRef.current === null) {
+          frameRafRef.current = requestAnimationFrame(() => {
+            frameRafRef.current = null;
+            const latest = pendingFrameRef.current;
+            pendingFrameRef.current = null;
+            if (latest) setCurrentFrame(latest);
+          });
+        }
       },
     });
     clientRef.current = client;
     client.connect();
 
     return () => {
+      if (frameRafRef.current !== null) {
+        cancelAnimationFrame(frameRafRef.current);
+        frameRafRef.current = null;
+      }
+      pendingFrameRef.current = null;
       client.close();
       if (clientRef.current === client) clientRef.current = null;
     };
@@ -119,8 +131,7 @@ export function MinimizedViewerDock() {
       >
         {showScreen ? (
           <img
-            ref={frameImgRef}
-            src={initialFrame ?? undefined}
+            src={currentFrame ?? undefined}
             alt="Remote screen preview"
             className="aspect-video w-full object-contain"
             draggable={false}

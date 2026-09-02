@@ -32,10 +32,9 @@ export function ViewerPage() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
-  const [initialFrame, setInitialFrame] = useState<string | null>(null);
+  const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
-  const frameImgRef = useRef<HTMLImageElement>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
@@ -204,7 +203,7 @@ export function ViewerPage() {
     if (!sessionId || !deviceId) return;
     gotFirstFrameRef.current = false;
     setShowScreen(false);
-    setInitialFrame(null);
+    setCurrentFrame(null);
     const client = new ScreenStreamClient({
       sessionId,
       deviceId,
@@ -215,23 +214,19 @@ export function ViewerPage() {
       },
       onFrame: (jpegBase64) => {
         const src = `data:image/jpeg;base64,${jpegBase64}`;
-        if (gotFirstFrameRef.current && frameImgRef.current) {
-          // Coalesce to the latest frame: if several arrive before the next paint,
-          // only the newest is rendered so the view never lags behind real time.
-          pendingFrameRef.current = src;
-          if (frameRafRef.current === null) {
-            frameRafRef.current = requestAnimationFrame(() => {
-              frameRafRef.current = null;
-              const latest = pendingFrameRef.current;
-              pendingFrameRef.current = null;
-              if (latest && frameImgRef.current) frameImgRef.current.src = latest;
-            });
-          }
-          return;
+        pendingFrameRef.current = src;
+        if (!gotFirstFrameRef.current) {
+          gotFirstFrameRef.current = true;
+          setShowScreen(true);
         }
-        gotFirstFrameRef.current = true;
-        setInitialFrame(src);
-        setShowScreen(true);
+        if (frameRafRef.current === null) {
+          frameRafRef.current = requestAnimationFrame(() => {
+            frameRafRef.current = null;
+            const latest = pendingFrameRef.current;
+            pendingFrameRef.current = null;
+            if (latest) setCurrentFrame(latest);
+          });
+        }
       },
       onClipboard: (text) => {
         void applyRemoteClipboard(text);
@@ -373,8 +368,7 @@ export function ViewerPage() {
             }}
           >
             <img
-              ref={frameImgRef}
-              src={initialFrame ?? undefined}
+              src={currentFrame ?? undefined}
               alt="Remote screen"
               className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
               draggable={false}
