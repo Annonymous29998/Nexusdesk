@@ -5,7 +5,13 @@ import type { WebRtcStreamer } from './webrtc/video-stream.js';
 import { createLogger } from './logger.js';
 import { captureScreenFrame } from './capture/screen.js';
 import { compressFrame } from './capture/encoder.js';
-import { handleRemoteInput, lockInput, unlockInput, prepareWindowsInput, type RemoteInputEvent } from './capture/input.js';
+import {
+  handleRemoteInput,
+  lockInput,
+  unlockInput,
+  prepareWindowsInput,
+  type RemoteInputEvent,
+} from './capture/input.js';
 import { getRemoteClipboardText, pasteToRemoteClipboard } from './capture/clipboard.js';
 import { sendWakeOnLan } from './system/wol.js';
 import { runTerminalCommand } from './system/terminal.js';
@@ -98,7 +104,7 @@ export class CommandHandler {
               : false;
             if (!webrtcStarted) {
               const message =
-                'WebRTC unavailable on guest PC — reinstall the support agent (v0.1.19+).';
+                'WebRTC unavailable on guest PC — reinstall the support agent (v0.1.20+).';
               log.error({ sessionId }, message);
               this.options.onStreamError?.(sessionId, message);
             }

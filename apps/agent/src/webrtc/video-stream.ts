@@ -29,12 +29,11 @@ interface DataChannelLike {
 interface SessionPeer {
   sessionId: string;
   pc: {
-    createDataChannel: (
-      label: string,
-      opts?: { ordered?: boolean },
-    ) => DataChannelLike;
+    createDataChannel: (label: string, opts?: { ordered?: boolean }) => DataChannelLike;
     setRemoteDescription: (desc: { type: string; sdp?: string }) => Promise<void>;
-    createOffer: (opts?: { offerToReceiveAudio?: boolean }) => Promise<{ type: string; sdp?: string }>;
+    createOffer: (opts?: {
+      offerToReceiveAudio?: boolean;
+    }) => Promise<{ type: string; sdp?: string }>;
     setLocalDescription: (desc: { type: string; sdp?: string }) => Promise<void>;
     addIceCandidate: (candidate: Record<string, unknown>) => Promise<void>;
     close: () => void;
@@ -100,7 +99,9 @@ export class WebRtcStreamer {
       };
       inputChannel.onopen = () => log.info({ sessionId }, 'input datachannel open');
 
-      pc.onicecandidate = (event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => {
+      pc.onicecandidate = (event: {
+        candidate: { toJSON: () => Record<string, unknown> } | null;
+      }) => {
         if (!event.candidate) return;
         const json = event.candidate.toJSON();
         this.opts.sendSignal('signal:ice_candidate', {
@@ -202,8 +203,8 @@ export class WebRtcStreamer {
       const raw = await captureScreenFrame(this.opts.maxWidth, 60);
       if (raw.format !== 'rgba' || raw.data.length <= 4) return;
 
-      let width = raw.width & 1 ? raw.width - 1 : raw.width;
-      let height = raw.height & 1 ? raw.height - 1 : raw.height;
+      const width = raw.width & 1 ? raw.width - 1 : raw.width;
+      const height = raw.height & 1 ? raw.height - 1 : raw.height;
       if (width < 2 || height < 2) return;
 
       const i420 = rgbaToI420(raw.data, raw.width, raw.height, width, height);
@@ -222,7 +223,8 @@ export class WebRtcStreamer {
     if (this.wrtcLoaded) return this.wrtcModule;
     this.wrtcLoaded = true;
     try {
-      const mod = (await import('@roamhq/wrtc')) as WrtcModule;
+      const imported = (await import('@roamhq/wrtc')) as { default?: WrtcModule } & WrtcModule;
+      const mod = imported.default ?? imported;
       if (!mod.RTCPeerConnection || !mod.nonstandard?.RTCVideoSource) {
         throw new Error('@roamhq/wrtc missing RTCPeerConnection or RTCVideoSource');
       }
@@ -242,7 +244,8 @@ interface WrtcModule {
     rtcpMuxPolicy?: string;
   }) => SessionPeer['pc'] & {
     addTrack: (track: unknown) => void;
-    onicecandidate: ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
+    onicecandidate:
+      ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
   };
   nonstandard: {
     RTCVideoSource: new () => {

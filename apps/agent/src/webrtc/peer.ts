@@ -33,9 +33,11 @@ export async function createPeerConnection(options: PeerOptions): Promise<{
   close: () => void;
 }> {
   try {
-    const wrtcMod = (await import('@roamhq/wrtc').catch(() => null)) as {
+    const imported = (await import('@roamhq/wrtc').catch(() => null)) as {
+      default?: { RTCPeerConnection?: new (config: { iceServers: IceServerConfig[] }) => unknown };
       RTCPeerConnection?: new (config: { iceServers: IceServerConfig[] }) => {
-        onicecandidate: ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
+        onicecandidate:
+          ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
         ontrack: ((event: { streams: unknown[] }) => void) | null;
         setRemoteDescription: (desc: SessionDescriptionInit) => Promise<void>;
         createAnswer: () => Promise<SessionDescriptionInit>;
@@ -45,28 +47,33 @@ export async function createPeerConnection(options: PeerOptions): Promise<{
         close: () => void;
       };
     } | null;
+    const wrtcMod = imported?.default ?? imported;
 
     const RTCPeerConnectionImpl =
       wrtcMod?.RTCPeerConnection ??
-      (globalThis as { RTCPeerConnection?: new (config: { iceServers: IceServerConfig[] }) => unknown })
-        .RTCPeerConnection;
+      (
+        globalThis as {
+          RTCPeerConnection?: new (config: { iceServers: IceServerConfig[] }) => unknown;
+        }
+      ).RTCPeerConnection;
 
     if (!RTCPeerConnectionImpl) {
       throw new Error('RTCPeerConnection unavailable');
     }
 
-    const pc = new (RTCPeerConnectionImpl as new (config: {
-      iceServers: IceServerConfig[];
-    }) => {
-      onicecandidate: ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
-      ontrack: ((event: { streams: unknown[] }) => void) | null;
-      setRemoteDescription: (desc: SessionDescriptionInit) => Promise<void>;
-      createAnswer: () => Promise<SessionDescriptionInit>;
-      createOffer: () => Promise<SessionDescriptionInit>;
-      setLocalDescription: (desc: SessionDescriptionInit) => Promise<void>;
-      addIceCandidate: (candidate: Record<string, unknown>) => Promise<void>;
-      close: () => void;
-    })({ iceServers: options.iceServers });
+    const pc = new (
+      RTCPeerConnectionImpl as new (config: { iceServers: IceServerConfig[] }) => {
+        onicecandidate:
+          ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
+        ontrack: ((event: { streams: unknown[] }) => void) | null;
+        setRemoteDescription: (desc: SessionDescriptionInit) => Promise<void>;
+        createAnswer: () => Promise<SessionDescriptionInit>;
+        createOffer: () => Promise<SessionDescriptionInit>;
+        setLocalDescription: (desc: SessionDescriptionInit) => Promise<void>;
+        addIceCandidate: (candidate: Record<string, unknown>) => Promise<void>;
+        close: () => void;
+      }
+    )({ iceServers: options.iceServers });
     pc.onicecandidate = (event) => {
       if (event.candidate) options.onIceCandidate(event.candidate.toJSON());
     };

