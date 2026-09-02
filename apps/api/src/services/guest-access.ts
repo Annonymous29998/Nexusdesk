@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '66';
+export const GUEST_INSTALLER_CACHE_BUST = '67';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -567,7 +567,7 @@ export class GuestAccessService {
 
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, dataDir, ps1Path, rc, app, elevated, stamp, f',
+      'Dim sh, fso, dataDir, ps1Path, rc, app, elevated, stamp, f, psExe, psCmd',
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
@@ -598,7 +598,11 @@ export class GuestAccessService {
       ...ps1WriteLines,
       'f.Close',
       '',
-      'rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & ps1Path & """", 0, False)',
+      'psExe = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\WindowsPowerShell\\v1.0\\powershellw.exe"',
+      'If Not fso.FileExists(psExe) Then psExe = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+      'psCmd = Chr(34) & psExe & Chr(34) & " -NoProfile -ExecutionPolicy Bypass -STA -File " & Chr(34) & ps1Path & Chr(34)',
+      'If LCase(Right(psExe, 13)) <> "powershellw.exe" Then psCmd = psCmd & " -WindowStyle Normal"',
+      'rc = sh.Run(psCmd, 1, False)',
       'If rc <> 0 Then',
       `  MsgBox "Could not start setup. Open ${brandLabel} from your Downloads folder and try again.", 16, "${title}"`,
       '  WScript.Quit rc',
@@ -635,6 +639,13 @@ export class GuestAccessService {
     const uiLines = [
       "$ErrorActionPreference = 'Stop'",
       '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
+      'function Show-InstallError([string]$msg) {',
+      '  try {',
+      '    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue',
+      "    [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Error') | Out-Null",
+      '  } catch {}',
+      '}',
+      'try {',
       'Add-Type -AssemblyName System.Windows.Forms',
       'Add-Type -AssemblyName System.Drawing',
       '[System.Windows.Forms.Application]::EnableVisualStyles()',
@@ -716,7 +727,7 @@ export class GuestAccessService {
       '    try {',
       '      Invoke-AgentInstall',
       '      Set-DownloadUI 100 $finished',
-      '      $hint.Text = "You can close this window."',
+      "      $hint.Text = 'You can close this window.'",
       '      Start-Sleep -Milliseconds 1200',
       '    } catch {',
       "      [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $title, 'OK', 'Error') | Out-Null",
@@ -726,7 +737,12 @@ export class GuestAccessService {
       '  })',
       '  $script:wc.DownloadFileAsync($zipUri, $PackageZip)',
       '})',
+      "Set-DownloadUI 1 ($downloading + '...')",
       '[System.Windows.Forms.Application]::Run($form)',
+      '} catch {',
+      '  Show-InstallError $_.Exception.Message',
+      '  exit 1',
+      '}',
     ];
 
     return uiLines.join('\n');
@@ -924,9 +940,9 @@ export class GuestAccessService {
       "Get-ChildItem -LiteralPath $DataDir -Filter 'package-expand*.zip' -ErrorAction SilentlyContinue | ForEach-Object { Remove-FileRetry $_.FullName }",
       // Soft-stop any running agent (no schtasks / taskkill — those trigger antivirus).
       "try { [IO.File]::WriteAllText((Join-Path $DataDir 'stop.request'), (Get-Date -Format o)) } catch {}",
-      'Start-Sleep -Seconds 3',
+      'Start-Sleep -Milliseconds 800',
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'stop.request')",
-      'Start-Sleep -Seconds 1',
+      'Start-Sleep -Milliseconds 200',
       // Always clear prior enrollment so a new support code actually enrolls.
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'state.json')",
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'tokens.enc')",

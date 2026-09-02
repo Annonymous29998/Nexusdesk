@@ -37,7 +37,9 @@ describe('Windows installer enrollment reset', () => {
     expect(vbs).toContain('agent-package.zip');
     expect(vbs).toContain('nd-install-');
     expect(vbs).not.toContain('setupExe');
-    expect(vbs).toContain('-WindowStyle Hidden');
+    expect(vbs).toContain('powershellw.exe');
+    expect(vbs).toContain('sh.Run(psCmd, 1, False)');
+    expect(vbs).not.toMatch(/sh\.Run\([^)]*-WindowStyle Hidden/i);
     expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
   });
 
