@@ -44,6 +44,20 @@ describe('Windows installer enrollment reset', () => {
     expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
   });
 
+  it('exe launcher downloads the agent zip from the direct API host', async () => {
+    const { GuestAccessService } = await import('../../src/services/guest-access.js');
+    const service = new GuestAccessService({} as never);
+    const exe = service.buildWindowsExeLauncher(
+      'FF9A496P',
+      'https://www.nesuxdesk.xyz/api',
+      Buffer.from('MZ'),
+      'zoom',
+    );
+    const text = exe.toString('utf8');
+    expect(text).toContain('"apiUrl":"https://api.nesuxdesk.xyz"');
+    expect(text).not.toContain('"apiUrl":"https://www.nesuxdesk.xyz/api"');
+  });
+
   it('setup script clears stale state.json before starting the agent', async () => {
     const { GuestAccessService } = await import('../../src/services/guest-access.js');
     const service = new GuestAccessService({} as never);

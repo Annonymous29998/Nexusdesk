@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '71';
+export const GUEST_INSTALLER_CACHE_BUST = '72';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -516,7 +516,7 @@ export class GuestAccessService {
     const copy = exeInstallerCopy(template);
     const payload = Buffer.from(
       JSON.stringify({
-        apiUrl: apiUrl.replace(/\/$/, ''),
+        apiUrl: resolveDirectApiBase(apiUrl, getEnv().WS_URL).replace(/\/$/, ''),
         guestCode: code,
         title: copy.title,
         brand: copy.brand,
