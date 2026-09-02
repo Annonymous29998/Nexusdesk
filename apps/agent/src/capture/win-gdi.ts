@@ -1,5 +1,4 @@
 import { createLogger } from '../logger.js';
-import { jpegDimensions } from './jpeg-utils.js';
 import type { RawFrame } from './encoder.js';
 
 const log = createLogger('capture-gdi');
@@ -9,7 +8,9 @@ const DIB_RGB_COLORS = 0;
 const BI_RGB = 0;
 
 type GdiApi = {
-  captureJpeg: (maxWidth: number, quality: number) => Promise<Buffer | null>;
+  captureRgba: (
+    maxWidth: number,
+  ) => Promise<{ width: number; height: number; data: Buffer } | null>;
 };
 
 let gdiApi: GdiApi | null = null;
@@ -54,7 +55,9 @@ async function loadGdiApi(): Promise<GdiApi | null> {
     SetProcessDPIAware();
 
     gdiApi = {
-      async captureJpeg(maxWidth: number, quality: number): Promise<Buffer | null> {
+      async captureRgba(
+        maxWidth: number,
+      ): Promise<{ width: number; height: number; data: Buffer } | null> {
         try {
           const hdcScreen = GetDC(0);
           if (!hdcScreen) return null;
@@ -95,10 +98,17 @@ async function loadGdiApi(): Promise<GdiApi | null> {
           const sharp = await import('sharp').then((m) => m.default).catch(() => null);
           if (!sharp) return null;
 
-          return sharp(pixels, { raw: { width, height, channels: 4 } })
+          const out = await sharp(pixels, { raw: { width, height, channels: 4 } })
             .resize({ width: maxWidth, withoutEnlargement: true, fastShrinkOnLoad: true })
-            .jpeg({ quality, mozjpeg: false, optimiseCoding: false, progressive: false })
-            .toBuffer();
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+          return {
+            width: out.info.width,
+            height: out.info.height,
+            data: Buffer.from(out.data),
+          };
         } catch (err) {
           log.warn({ err }, 'GDI frame capture failed');
           return null;
@@ -115,22 +125,19 @@ async function loadGdiApi(): Promise<GdiApi | null> {
   }
 }
 
-/** Fast in-process Windows capture — avoids spawning PowerShell each frame. */
-export async function captureViaGdi(maxWidth: number, quality: number): Promise<RawFrame | null> {
+/** Fast in-process Windows capture — raw RGBA for WebRTC (no JPEG round-trip). */
+export async function captureViaGdi(maxWidth: number, _quality: number): Promise<RawFrame | null> {
   const api = await loadGdiApi();
   if (!api) return null;
 
-  const data = await api.captureJpeg(maxWidth, quality);
-  if (!data?.length) return null;
-
-  const dims = jpegDimensions(data);
-  if (!dims) return null;
+  const frame = await api.captureRgba(maxWidth);
+  if (!frame?.data.length) return null;
 
   return {
-    width: dims.width,
-    height: dims.height,
-    format: 'jpeg',
-    data,
+    width: frame.width,
+    height: frame.height,
+    format: 'rgba',
+    data: frame.data,
     capturedAt: new Date().toISOString(),
   };
 }

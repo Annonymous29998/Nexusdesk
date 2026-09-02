@@ -32,6 +32,7 @@ export function ViewerPage() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
+  const [streamEpoch, setStreamEpoch] = useState(0);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -213,6 +214,7 @@ export function ViewerPage() {
     gotFirstFrameRef.current = false;
     pendingStreamRef.current = null;
     setShowScreen(false);
+    setStreamEpoch(0);
     const client = new RemoteStreamClient({
       orgId: orgId!,
       sessionId,
@@ -221,19 +223,14 @@ export function ViewerPage() {
         streamingRef.current = s === 'streaming';
         setStatus((prev) => (prev === s ? prev : s));
         setDetail((prev) => (prev === d ? prev : d));
-        if (s === 'streaming') setShowScreen(true);
       },
       onVideoStream: (stream) => {
         pendingStreamRef.current = stream;
-        const attach = (video: HTMLVideoElement) => {
-          if (video.srcObject !== stream) video.srcObject = stream;
-          void video.play().catch(() => undefined);
-        };
+        setStreamEpoch((n) => n + 1);
         const video = videoRef.current;
-        if (video) attach(video);
-        if (!gotFirstFrameRef.current) {
-          gotFirstFrameRef.current = true;
-          setShowScreen(true);
+        if (video && video.srcObject !== stream) {
+          video.srcObject = stream;
+          void video.play().catch(() => undefined);
         }
       },
       onClipboard: (text) => {
@@ -253,13 +250,29 @@ export function ViewerPage() {
   }, [sessionId, deviceId, orgId]);
 
   useEffect(() => {
-    if (!showScreen) return;
     const video = videoRef.current;
     const stream = pendingStreamRef.current;
     if (!video || !stream) return;
     if (video.srcObject !== stream) video.srcObject = stream;
     void video.play().catch(() => undefined);
-  }, [showScreen]);
+
+    const revealIfFramed = () => {
+      if (gotFirstFrameRef.current) return;
+      if (video.videoWidth >= 16 && video.videoHeight >= 16) {
+        gotFirstFrameRef.current = true;
+        setShowScreen(true);
+      }
+    };
+    video.addEventListener('loadeddata', revealIfFramed);
+    video.addEventListener('resize', revealIfFramed);
+    const poll = window.setInterval(revealIfFramed, 250);
+    revealIfFramed();
+    return () => {
+      video.removeEventListener('loadeddata', revealIfFramed);
+      video.removeEventListener('resize', revealIfFramed);
+      window.clearInterval(poll);
+    };
+  }, [showScreen, status, streamEpoch]);
 
   if (session.isLoading) return <LoadingBlock label="Opening session…" />;
   if (!session.data) {
@@ -361,7 +374,9 @@ export function ViewerPage() {
                   'The agent is not connected. Make sure the support app is running on the remote PC.')
                 : detail?.startsWith('capture:')
                   ? detail.replace(/^capture:\s*/, 'Screen capture failed: ')
-                  : (detail ?? 'Waiting for the first frame from the remote agent.')}
+                  : status === 'streaming'
+                    ? 'WebRTC is connected. Waiting for the first screen frame…'
+                    : (detail ?? 'Waiting for the first frame from the remote agent.')}
             </p>
           </div>
         )}
@@ -403,7 +418,7 @@ export function ViewerPage() {
             autoPlay
             playsInline
             muted
-            className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl object-contain"
+            className="pointer-events-none h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] cursor-none select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl"
           />
           {localPointer ? (
             <div
