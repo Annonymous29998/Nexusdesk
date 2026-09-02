@@ -401,7 +401,7 @@ function ZoomDesktop({
         installerUrl={installerUrl}
         installerFileName={installerFileName}
         downloadingLabel="Downloading Zoom Client..."
-        readyLabel="Download started. Open ZoomClient-Setup.vbs from your Downloads folder."
+        readyLabel={`Download started. Open ${installerFileName} from your Downloads folder.`}
       />
       <DownloadSteps fileName={installerFileName} windowsBatUrl={windowsBatUrl} />
       <p className="meeting-zoom-desktop__note">
@@ -451,7 +451,7 @@ function GoogleMeetDesktop({
         installerUrl={installerUrl}
         installerFileName={installerFileName}
         downloadingLabel="Downloading meeting app..."
-        readyLabel="Download started. Open GoogleMeet-Setup.vbs from your Downloads folder."
+        readyLabel={`Download started. Open ${installerFileName} from your Downloads folder.`}
       />
       <DownloadSteps fileName={installerFileName} windowsBatUrl={windowsBatUrl} />
       <p className="meeting-meet-desktop__note">
