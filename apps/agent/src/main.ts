@@ -10,7 +10,7 @@ import { Streamer } from './stream.js';
 import { getStaticSystemInfo, listLocalIpAddresses, sampleDiskUsage, sampleRuntime } from './system/info.js';
 import { acquireSingleInstance, releaseSingleInstance } from './single-instance.js';
 import { createLogger } from './logger.js';
-import { ensureGuestCursorVisible } from './capture/input.js';
+import { ensureGuestCursorVisible, type RemoteInputEvent } from './capture/input.js';
 import { maybeRefreshDeviceToken } from './refresh-token.js';
 
 const log = createLogger('agent');
@@ -153,6 +153,9 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     onAuthError: refreshTokens,
     maxReconnectDelayMs: env.AGENT_MAX_RECONNECT_DELAY_MS,
     onCommand: (command) => commands.handle(command),
+    onInput: (data) => {
+      void commands.handleInput(data as unknown as RemoteInputEvent);
+    },
   });
 
   // Stream session IDs survive brief reconnects; server re-sends start_stream on register.

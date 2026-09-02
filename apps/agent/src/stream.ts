@@ -26,7 +26,7 @@ export interface StreamerOptions {
   onCaptureError?: (message: string, sessionIds: string[]) => void;
 }
 
-const BURST_DELAYS_MS = [0, 16, 33, 50, 80, 120, 180];
+const BURST_DELAYS_MS = [0, 8, 16, 24, 40, 60, 90, 130];
 
 /**
  * Captures the screen at a fixed frame rate and pushes JPEG frames (base64)

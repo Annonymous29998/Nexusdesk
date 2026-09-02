@@ -28,6 +28,23 @@ interface AgentCommand {
 export class CommandHandler {
   constructor(private readonly options: CommandHandlerOptions) {}
 
+  async handleInput(payload: RemoteInputEvent): Promise<void> {
+    if (!payload?.kind) return;
+    if (payload.kind === 'clipboard-paste') {
+      const text = String(payload.text ?? '');
+      if (text) await pasteToRemoteClipboard(text);
+      return;
+    }
+    if (payload.kind === 'clipboard-pull') {
+      const text = await getRemoteClipboardText();
+      const sessionId = String(payload.sessionId ?? '');
+      if (sessionId) this.options.sendClipboard(sessionId, text);
+      return;
+    }
+    void handleRemoteInput(payload);
+    this.options.streamer.requestRefresh(payload.kind, payload.buttons);
+  }
+
   async handle(raw: unknown): Promise<void> {
     const command = raw as AgentCommand;
     const type = command.type;
@@ -79,24 +96,7 @@ export class CommandHandler {
         }
         case 'input': {
           const payload = command.payload as unknown as RemoteInputEvent;
-          if (payload?.kind) {
-            if (payload.kind === 'clipboard-paste') {
-              const text = String(payload.text ?? '');
-              if (text) await pasteToRemoteClipboard(text);
-              return;
-            }
-            if (payload.kind === 'clipboard-pull') {
-              const text = await getRemoteClipboardText();
-              const sessionId = String(payload.sessionId ?? '');
-              if (sessionId) this.options.sendClipboard(sessionId, text);
-              return;
-            }
-            if (payload.kind !== 'mouse-move') {
-              log.info({ kind: payload.kind, x: payload.x, y: payload.y }, 'remote input');
-            }
-            void handleRemoteInput(payload);
-            this.options.streamer.requestRefresh(payload.kind, payload.buttons);
-          }
+          await this.handleInput(payload);
           return;
         }
         case 'wake_on_lan': {

@@ -54,10 +54,10 @@ const envSchema = z.object({
   /** 32-byte base64 key for encrypting the on-disk auth token. Falls back to a machine key file. */
   ENCRYPTION_KEY: z.string().optional(),
 
-  AGENT_CAPTURE_FPS: envInt.default(30),
-  AGENT_CAPTURE_QUALITY: envInt.default(50),
+  AGENT_CAPTURE_FPS: envInt.default(45),
+  AGENT_CAPTURE_QUALITY: envInt.default(40),
   /** Max width sent to viewers — keeps stream fast on high-res displays. */
-  AGENT_CAPTURE_MAX_WIDTH: envInt.default(1280),
+  AGENT_CAPTURE_MAX_WIDTH: envInt.default(960),
   /** Hide guest cursor and skip mouse-move injection while a viewer is connected. */
   AGENT_STEALTH_INPUT: z
     .enum(['true', 'false', '1', '0'])
@@ -129,7 +129,7 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.15';
+export const AGENT_VERSION = '0.1.16';
 
 /** Prefer env WS_URL and migrate away from Vercel-proxied frontend WebSocket hosts. */
 export function resolveAgentWsUrl(stateWsUrl: string, envWsUrl: string): string {

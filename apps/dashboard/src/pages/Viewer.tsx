@@ -136,6 +136,25 @@ export function ViewerPage() {
     return 'left';
   };
 
+  const flushPointerMoveSync = () => {
+    if (moveRafRef.current !== null) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = null;
+    }
+    const pending = pendingMoveRef.current;
+    const client = clientRef.current;
+    if (pending && client && streamingRef.current) {
+      client.sendInput({
+        kind: 'mouse-move',
+        x: pending.x,
+        y: pending.y,
+        button: pending.button,
+        buttons: pending.buttons,
+      });
+    }
+    pendingMoveRef.current = null;
+  };
+
   const flushPointerMove = () => {
     moveRafRef.current = null;
     const pending = pendingMoveRef.current;
@@ -171,11 +190,7 @@ export function ViewerPage() {
       }
       return;
     }
-    if (moveRafRef.current !== null) {
-      cancelAnimationFrame(moveRafRef.current);
-      moveRafRef.current = null;
-    }
-    pendingMoveRef.current = null;
+    flushPointerMoveSync();
     client.sendInput({ kind, x, y, button, buttons });
   };
 

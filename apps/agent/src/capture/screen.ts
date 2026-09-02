@@ -8,7 +8,6 @@ import { jpegDimensions } from './jpeg-utils.js';
 import { captureViaGdi } from './win-gdi.js';
 import si from 'systeminformation';
 import { createLogger } from '../logger.js';
-import { syncPhysicalInputScreenSize } from './input.js';
 
 const log = createLogger('capture');
 const execFileAsync = promisify(execFile);
@@ -105,7 +104,6 @@ async function captureViaPowerShell(maxWidth = 1280, jpegQuality = 52): Promise<
 
 export async function captureScreenFrame(maxWidth = 1280, jpegQuality = 52): Promise<RawFrame> {
   if (process.platform === 'win32') {
-    await syncPhysicalInputScreenSize();
     try {
       const gdiFrame = await captureViaGdi(maxWidth, jpegQuality);
       if (gdiFrame) {

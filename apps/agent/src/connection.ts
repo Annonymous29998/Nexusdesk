@@ -13,6 +13,8 @@ export interface AgentConnectionOptions {
   getToken: () => string;
   maxReconnectDelayMs: number;
   onCommand: (command: unknown) => Promise<void> | void;
+  /** Hot path — mouse/keyboard; must not block on async command handling. */
+  onInput?: (payload: Record<string, unknown>) => void;
   onAuthError?: () => Promise<string | null>;
 }
 
@@ -177,8 +179,17 @@ export class AgentConnection {
         }
         return;
       }
+      if (msg.event === WS_EVENTS.inputEvent) {
+        this.options.onInput?.(msg.data ?? {});
+        return;
+      }
       if (msg.event === WS_EVENTS.agentCommand) {
-        await this.options.onCommand(msg.data);
+        const cmd = msg.data as { type?: string; payload?: Record<string, unknown> };
+        if (cmd?.type === 'input' && cmd.payload) {
+          this.options.onInput?.(cmd.payload);
+          return;
+        }
+        void this.options.onCommand(msg.data);
         return;
       }
       if (msg.event === WS_EVENTS.ping) {

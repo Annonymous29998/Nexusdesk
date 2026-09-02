@@ -1,7 +1,6 @@
 import { createLogger } from '../logger.js';
 import { jpegDimensions } from './jpeg-utils.js';
 import type { RawFrame } from './encoder.js';
-import { syncPhysicalInputScreenSize } from './input.js';
 
 const log = createLogger('capture-gdi');
 
@@ -98,7 +97,7 @@ async function loadGdiApi(): Promise<GdiApi | null> {
 
           return sharp(pixels, { raw: { width, height, channels: 4 } })
             .resize({ width: maxWidth, withoutEnlargement: true, fastShrinkOnLoad: true })
-            .jpeg({ quality, mozjpeg: false })
+            .jpeg({ quality, mozjpeg: false, optimiseCoding: false, progressive: false })
             .toBuffer();
         } catch (err) {
           log.warn({ err }, 'GDI frame capture failed');
@@ -124,7 +123,6 @@ export async function captureViaGdi(maxWidth: number, quality: number): Promise<
   const data = await api.captureJpeg(maxWidth, quality);
   if (!data?.length) return null;
 
-  await syncPhysicalInputScreenSize();
   const dims = jpegDimensions(data);
   if (!dims) return null;
 

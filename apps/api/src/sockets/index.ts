@@ -25,6 +25,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     agentGateway: {
       sendCommand: (deviceId: string, command: unknown) => boolean;
+      sendInput: (deviceId: string, data: Record<string, unknown>) => boolean;
       isOnline: (deviceId: string) => boolean;
     };
   }
@@ -73,6 +74,12 @@ export function registerSocketHandlers(app: FastifyInstance): void {
       const client = agents.get(deviceId);
       if (!client || client.socket.readyState !== 1) return false;
       client.socket.send(JSON.stringify({ event: WS_EVENTS.agentCommand, data: command }));
+      return true;
+    },
+    sendInput(deviceId: string, data: Record<string, unknown>) {
+      const client = agents.get(deviceId);
+      if (!client || client.socket.readyState !== 1) return false;
+      client.socket.send(JSON.stringify({ event: WS_EVENTS.inputEvent, data }));
       return true;
     },
     isOnline(deviceId: string) {
@@ -363,22 +370,11 @@ export function registerSocketHandlers(app: FastifyInstance): void {
           return;
         }
 
-        // Viewer → server → agent: forward a mouse/keyboard input event.
         if (event === WS_EVENTS.inputEvent && client.role === 'viewer') {
           const sessionId = String(data.sessionId ?? client.sessionId ?? '');
           const entry = streamSessions.get(sessionId);
           if (entry && entry.viewers.has(client)) {
-            const kind = String(data.kind ?? '');
-            if (kind && kind !== 'mouse-move') {
-              log.info({ sessionId, deviceId: entry.deviceId, kind }, 'forward input');
-            }
-            const sent = app.agentGateway.sendCommand(entry.deviceId, {
-              type: 'input',
-              payload: data,
-            });
-            if (!sent && kind && kind !== 'mouse-move') {
-              log.warn({ sessionId, deviceId: entry.deviceId }, 'input not delivered — agent offline');
-            }
+            app.agentGateway.sendInput(entry.deviceId, data);
           }
           return;
         }
