@@ -17,6 +17,8 @@ export interface WebRtcStreamerOptions {
   sendSignal: (event: string, data: Record<string, unknown>) => void;
   joinSession: (sessionId: string) => void | Promise<void>;
   onInput: (payload: RemoteInputEvent) => void;
+  /** Fired once a session is actually pushing desktop frames (not just a connected peer). */
+  onVideoReady?: (sessionId: string) => void;
 }
 
 interface DataChannelLike {
@@ -55,6 +57,9 @@ export class WebRtcStreamer {
   private wrtcLoaded = false;
   private wrtcModule: WrtcModule | null = null;
   private readonly targetIntervalMs: number;
+  private okTicks = 0;
+  private lastLoopMs = 0;
+  private readonly videoReadyNotified = new Set<string>();
 
   constructor(private readonly opts: WebRtcStreamerOptions) {
     this.targetIntervalMs = Math.max(16, Math.floor(1000 / Math.max(1, opts.fps)));
@@ -175,6 +180,7 @@ export class WebRtcStreamer {
         peer.track.stop();
         peer.pc.close();
         this.sessions.delete(sessionId);
+        this.videoReadyNotified.delete(sessionId);
       }
     } else {
       for (const peer of this.sessions.values()) {
@@ -183,18 +189,34 @@ export class WebRtcStreamer {
         peer.pc.close();
       }
       this.sessions.clear();
+      this.videoReadyNotified.clear();
     }
-    if (this.sessions.size === 0 && this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
+    if (this.sessions.size === 0) {
+      this.okTicks = 0;
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
     }
   }
 
+  /**
+   * Deadline-based pacing: the wait is what is left of the frame budget after
+   * capture + encode, so a slow frame does not halve the frame rate.
+   */
   private scheduleLoop(): void {
     if (this.sessions.size === 0) return;
-    this.timer = setTimeout(() => {
-      void this.tick().finally(() => this.scheduleLoop());
-    }, this.targetIntervalMs);
+    const startedAt = Date.now();
+    this.timer = setTimeout(
+      () => {
+        void this.tick().finally(() => {
+          const spent = Date.now() - startedAt;
+          this.lastLoopMs = spent;
+          this.scheduleLoop();
+        });
+      },
+      Math.max(1, this.targetIntervalMs - Math.min(this.lastLoopMs, this.targetIntervalMs - 1)),
+    );
   }
 
   private async tick(): Promise<void> {
@@ -207,6 +229,14 @@ export class WebRtcStreamer {
       const frame = { width: i420.width, height: i420.height, data: i420.data };
       for (const peer of this.sessions.values()) {
         peer.videoSource.onFrame(frame);
+      }
+      this.okTicks += 1;
+      if (this.okTicks >= 6) {
+        for (const sessionId of this.sessions.keys()) {
+          if (this.videoReadyNotified.has(sessionId)) continue;
+          this.videoReadyNotified.add(sessionId);
+          this.opts.onVideoReady?.(sessionId);
+        }
       }
     } catch (err) {
       log.debug({ err }, 'webrtc frame tick failed');

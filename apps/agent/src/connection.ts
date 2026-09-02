@@ -5,8 +5,11 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('connection');
 
-/** Drop screen frames once ~4 frames are queued — balance latency vs smoothness. */
-const MAX_FRAME_BUFFER_BYTES = 512 * 1024;
+/**
+ * Drop screen frames once roughly one frame is already queued. A deep queue
+ * only delivers stale frames, which reads as lag during remote control.
+ */
+const MAX_FRAME_BUFFER_BYTES = 128 * 1024;
 
 export interface AgentConnectionOptions {
   wsUrl: string;

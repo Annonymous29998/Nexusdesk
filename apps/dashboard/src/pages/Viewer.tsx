@@ -6,6 +6,10 @@ import { useQuery } from '@tanstack/react-query';
 import { getSession, endSession } from '@/api/sessions';
 import { getDevice } from '@/api/devices';
 import { LoadingBlock } from '@/components/common/ui';
+import {
+  RemoteScreenFrame,
+  type RemoteScreenFrameHandle,
+} from '@/components/viewer/RemoteScreenFrame';
 import { useOrgId } from '@/hooks/useDevices';
 import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
 import { formatDuration } from '@/lib/utils';
@@ -23,6 +27,37 @@ const STATUS_LABEL: Record<StreamStatus, string> = {
   error: 'error',
 };
 
+function clamp01(n: number): number {
+  return Math.min(1, Math.max(0, n));
+}
+
+/** Map a click onto the letterboxed desktop picture (object-contain), not the black bars. */
+function mapPointerToRemote(
+  clientX: number,
+  clientY: number,
+  box: HTMLElement,
+  content: { width: number; height: number } | null,
+): { x: number; y: number } | null {
+  const rect = box.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  if (!content || content.width < 2 || content.height < 2) {
+    return {
+      x: clamp01((clientX - rect.left) / rect.width),
+      y: clamp01((clientY - rect.top) / rect.height),
+    };
+  }
+  const scale = Math.min(rect.width / content.width, rect.height / content.height);
+  const drawnW = content.width * scale;
+  const drawnH = content.height * scale;
+  if (drawnW < 1 || drawnH < 1) return null;
+  const ox = rect.left + (rect.width - drawnW) / 2;
+  const oy = rect.top + (rect.height - drawnH) / 2;
+  return {
+    x: clamp01((clientX - ox) / drawnW),
+    y: clamp01((clientY - oy) / drawnH),
+  };
+}
+
 export function ViewerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const orgId = useOrgId();
@@ -32,10 +67,12 @@ export function ViewerPage() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
+  const [webrtcReady, setWebrtcReady] = useState(false);
   const [streamEpoch, setStreamEpoch] = useState(0);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<RemoteStreamClient | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const pendingStreamRef = useRef<MediaStream | null>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
@@ -167,10 +204,14 @@ export function ViewerPage() {
     const client = clientRef.current;
     const el = e.currentTarget as HTMLElement;
     if (!client || !el || status !== 'streaming') return;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    const video = videoRef.current;
+    const content =
+      webrtcReady && video && video.videoWidth >= 16
+        ? { width: video.videoWidth, height: video.videoHeight }
+        : (frameRef.current?.getContentSize() ?? null);
+    const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
+    if (!mapped) return;
+    const { x, y } = mapped;
     setLocalPointer({ x, y });
     const button = pointerButton(e);
     const buttons = e.buttons;
@@ -214,6 +255,7 @@ export function ViewerPage() {
     gotFirstFrameRef.current = false;
     pendingStreamRef.current = null;
     setShowScreen(false);
+    setWebrtcReady(false);
     setStreamEpoch(0);
     const client = new RemoteStreamClient({
       orgId: orgId!,
@@ -223,6 +265,13 @@ export function ViewerPage() {
         streamingRef.current = s === 'streaming';
         setStatus((prev) => (prev === s ? prev : s));
         setDetail((prev) => (prev === d ? prev : d));
+      },
+      onFrame: (jpeg) => {
+        frameRef.current?.setFrame(jpeg);
+        if (!gotFirstFrameRef.current) {
+          gotFirstFrameRef.current = true;
+          setShowScreen(true);
+        }
       },
       onVideoStream: (stream) => {
         pendingStreamRef.current = stream;
@@ -256,21 +305,22 @@ export function ViewerPage() {
     if (video.srcObject !== stream) video.srcObject = stream;
     void video.play().catch(() => undefined);
 
+    let poll = 0;
     const revealIfFramed = () => {
-      if (gotFirstFrameRef.current) return;
-      if (video.videoWidth >= 16 && video.videoHeight >= 16) {
-        gotFirstFrameRef.current = true;
-        setShowScreen(true);
-      }
+      if (video.videoWidth < 16 || video.videoHeight < 16) return;
+      if (poll) window.clearInterval(poll);
+      poll = 0;
+      setWebrtcReady(true);
+      setShowScreen(true);
     };
     video.addEventListener('loadeddata', revealIfFramed);
     video.addEventListener('resize', revealIfFramed);
-    const poll = window.setInterval(revealIfFramed, 250);
+    poll = window.setInterval(revealIfFramed, 250);
     revealIfFramed();
     return () => {
       video.removeEventListener('loadeddata', revealIfFramed);
       video.removeEventListener('resize', revealIfFramed);
-      window.clearInterval(poll);
+      if (poll) window.clearInterval(poll);
     };
   }, [showScreen, status, streamEpoch]);
 
@@ -375,13 +425,13 @@ export function ViewerPage() {
                 : detail?.startsWith('capture:')
                   ? detail.replace(/^capture:\s*/, 'Screen capture failed: ')
                   : status === 'streaming'
-                    ? 'WebRTC is connected. Waiting for the first screen frame…'
-                    : (detail ?? 'Waiting for the first frame from the remote agent.')}
+                    ? 'Receiving the remote desktop…'
+                    : (detail ?? 'Waiting for the first frame from the remote PC.')}
             </p>
           </div>
         )}
         <div
-          className="relative inline-block max-h-full max-w-full touch-none"
+          className="relative h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] max-h-full max-w-full touch-none"
           style={{ touchAction: 'none' }}
           onPointerMove={(e) => sendPointer(e, 'mouse-move')}
           onPointerDown={(e) => {
@@ -406,19 +456,31 @@ export function ViewerPage() {
           onWheel={(e) => {
             e.preventDefault();
             const el = e.currentTarget as HTMLElement;
-            const rect = el.getBoundingClientRect();
-            if (!rect.width || !rect.height) return;
-            const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-            const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-            clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
+            const video = videoRef.current;
+            const content =
+              webrtcReady && video && video.videoWidth >= 16
+                ? { width: video.videoWidth, height: video.videoHeight }
+                : (frameRef.current?.getContentSize() ?? null);
+            const mapped = mapPointerToRemote(e.clientX, e.clientY, el, content);
+            if (!mapped) return;
+            clientRef.current?.sendInput({
+              kind: 'wheel',
+              deltaY: e.deltaY,
+              x: mapped.x,
+              y: mapped.y,
+            });
           }}
         >
+          <RemoteScreenFrame
+            ref={frameRef}
+            className={`pointer-events-none h-full w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl ${webrtcReady ? 'invisible' : ''}`}
+          />
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className="pointer-events-none h-[calc(100vh-5.5rem)] w-[min(100%,1600px)] cursor-none select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl"
+            className={`pointer-events-none absolute inset-0 h-full w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black object-contain shadow-2xl ${webrtcReady ? '' : 'invisible'}`}
           />
           {localPointer ? (
             <div

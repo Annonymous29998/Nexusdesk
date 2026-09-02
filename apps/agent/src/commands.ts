@@ -51,9 +51,7 @@ export class CommandHandler {
       return;
     }
     void handleRemoteInput(payload);
-    if (this.options.env.AGENT_STREAM_MODE === 'jpeg') {
-      this.options.streamer.requestRefresh(payload.kind, payload.buttons);
-    }
+    this.options.streamer.requestRefresh(payload.kind, payload.buttons);
   }
 
   async handle(raw: unknown): Promise<void> {
@@ -94,19 +92,19 @@ export class CommandHandler {
           const sessionId = String(command.payload?.sessionId ?? '');
           if (sessionId) {
             void prepareWindowsInput();
+            // JPEG is the desktop picture the operator sees immediately (AnyDesk-style).
+            // WebRTC runs in parallel and takes over once it is actually sending frames.
+            this.options.streamer.start(sessionId);
             const mode = this.options.env.AGENT_STREAM_MODE;
-            if (mode === 'jpeg') {
-              this.options.streamer.start(sessionId);
-              return;
-            }
+            if (mode === 'jpeg') return;
             const webrtcStarted = this.options.webrtc
               ? await this.options.webrtc.start(sessionId)
               : false;
             if (!webrtcStarted) {
-              const message =
-                'WebRTC unavailable on guest PC — reinstall the support agent (v0.1.22+).';
-              log.error({ sessionId }, message);
-              this.options.onStreamError?.(sessionId, message);
+              log.warn(
+                { sessionId },
+                'WebRTC unavailable — continuing with the remote desktop stream',
+              );
             }
           }
           return;

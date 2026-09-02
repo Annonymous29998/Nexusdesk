@@ -14,7 +14,7 @@ const WEBRTC_CONNECT_TIMEOUT_MS = 20_000;
 
 export type { InputEvent, StreamStatus };
 
-export interface RemoteStreamOptions extends Omit<ScreenStreamOptions, 'onFrame'> {
+export interface RemoteStreamOptions extends ScreenStreamOptions {
   orgId: string;
   onVideoStream?: (stream: MediaStream) => void;
 }
@@ -46,8 +46,34 @@ function preferVideoCodecs(pc: RTCPeerConnection): void {
 }
 
 /**
- * WebRTC-only remote viewer — video via RTCPeerConnection (H.264/VP8/VP9),
- * input via DataChannel. WebSocket is used for auth, signaling, and clipboard only.
+ * Drop the receiver jitter buffer. Chrome buffers incoming video for smooth
+ * playback, which adds 100–500 ms — unusable for remote control, where a fresh
+ * frame matters far more than smoothness.
+ */
+function minimizeReceiveLatency(pc: RTCPeerConnection): void {
+  for (const receiver of pc.getReceivers()) {
+    if (receiver.track?.kind !== 'video') continue;
+    const tunable = receiver as RTCRtpReceiver & {
+      playoutDelayHint?: number;
+      jitterBufferTarget?: number;
+    };
+    try {
+      tunable.playoutDelayHint = 0;
+    } catch {
+      /* not supported on this browser */
+    }
+    try {
+      tunable.jitterBufferTarget = 0;
+    } catch {
+      /* not supported on this browser */
+    }
+  }
+}
+
+/**
+ * Remote viewer: JPEG desktop frames over WebSocket (always available),
+ * plus WebRTC video + DataChannel when the peer actually has picture.
+ * Mouse/keyboard fall back to WebSocket whenever the DataChannel is not open.
  */
 export class RemoteStreamClient {
   private readonly signaling: ScreenStreamClient;
@@ -66,6 +92,7 @@ export class RemoteStreamClient {
         if (status === 'waiting' && this.connected) return;
         options.onStatus?.(status, detail);
       },
+      onFrame: options.onFrame,
       onClipboard: options.onClipboard,
       onSignal: (event, data) => void this.handleSignal(event, data),
     });
@@ -79,13 +106,14 @@ export class RemoteStreamClient {
 
   sendInput(input: InputEvent): void {
     if (this.inputChannel?.readyState === 'open') {
-      this.inputChannel.send(JSON.stringify({ sessionId: this.options.sessionId, ...input }));
-      return;
+      try {
+        this.inputChannel.send(JSON.stringify({ sessionId: this.options.sessionId, ...input }));
+        return;
+      } catch {
+        /* fall through to WebSocket so the operator never loses control */
+      }
     }
-    // DataChannel not open yet — WS fallback only until WebRTC connects.
-    if (!this.connected) {
-      this.signaling.sendInput(input);
-    }
+    this.signaling.sendInput(input);
   }
 
   requestRemoteClipboard(): void {
@@ -131,14 +159,15 @@ export class RemoteStreamClient {
     this.pc?.close();
     this.pc = null;
     this.inputChannel = null;
-    this.options.onStatus?.('error', message);
+    this.connected = false;
+    this.options.onStatus?.('waiting', `${message} Continuing with the remote desktop stream.`);
   }
 
   private wireInputChannel(channel: RTCDataChannel): void {
     this.inputChannel = channel;
     channel.onopen = () => {
       if (this.connected) {
-        this.options.onStatus?.('streaming', 'live (WebRTC + DataChannel)');
+        this.options.onStatus?.('streaming', 'live');
       }
     };
   }
@@ -167,19 +196,19 @@ export class RemoteStreamClient {
   }
 
   private deliverVideoFromPeer(pc: RTCPeerConnection): void {
+    minimizeReceiveLatency(pc);
     const tracks = pc
       .getReceivers()
       .map((receiver) => receiver.track)
       .filter((track): track is MediaStreamTrack => Boolean(track) && track.kind === 'video');
     if (!tracks.length) {
-      this.markConnected('live (WebRTC)');
       return;
     }
     this.deliverVideo(new MediaStream(tracks));
   }
 
   private deliverVideo(stream: MediaStream): void {
-    this.markConnected('live (WebRTC)');
+    this.markConnected('live');
     this.options.onVideoStream?.(stream);
   }
 
@@ -210,6 +239,7 @@ export class RemoteStreamClient {
     }, WEBRTC_CONNECT_TIMEOUT_MS);
 
     pc.ontrack = (ev) => {
+      minimizeReceiveLatency(pc);
       const stream = ev.streams[0] ?? (ev.track ? new MediaStream([ev.track]) : null);
       if (stream) this.deliverVideo(stream);
     };

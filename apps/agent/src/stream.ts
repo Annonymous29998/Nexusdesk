@@ -66,7 +66,7 @@ export class Streamer {
     this.enqueueCapture();
   }
 
-  stop(sessionId?: string): void {
+  stop(sessionId?: string, options?: { keepInputSession?: boolean }): void {
     if (sessionId) this.sessions.delete(sessionId);
     else this.sessions.clear();
     if (this.sessions.size === 0) {
@@ -83,9 +83,11 @@ export class Streamer {
       this.consecutiveFailures = 0;
       this.warnedNoCapture = false;
       this.queuedCaptures = 0;
-      setStealthInput(false);
-      void onRemoteSessionEnd();
-      log.info('stopped screen stream');
+      if (!options?.keepInputSession) {
+        setStealthInput(false);
+        void onRemoteSessionEnd();
+      }
+      log.info({ keepInputSession: Boolean(options?.keepInputSession) }, 'stopped screen stream');
     }
   }
 
@@ -165,8 +167,7 @@ export class Streamer {
     const started = Date.now();
     try {
       const raw = await captureScreenFrame(this.opts.maxWidth, this.opts.quality);
-      const captureFailed =
-        raw.format === 'rgba' && raw.data.length <= 4;
+      const captureFailed = raw.format === 'rgba' && raw.data.length <= 4;
       if (
         captureFailed ||
         (raw.format !== 'jpeg' && raw.format !== 'rgba' && raw.format !== 'png')

@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 
 export interface RemoteScreenFrameHandle {
   setFrame: (jpegBase64: string) => void;
+  getContentSize: () => { width: number; height: number } | null;
 }
 
 interface RemoteScreenFrameProps {
@@ -88,6 +89,11 @@ export const RemoteScreenFrame = forwardRef<RemoteScreenFrameHandle, RemoteScree
           /* ignore corrupt frame */
         }
       },
+      getContentSize() {
+        const canvas = canvasRef.current;
+        if (!canvas || canvas.width < 2 || canvas.height < 2) return null;
+        return { width: canvas.width, height: canvas.height };
+      },
     }));
 
     useEffect(() => {
@@ -96,13 +102,6 @@ export const RemoteScreenFrame = forwardRef<RemoteScreenFrameHandle, RemoteScree
       };
     }, []);
 
-    return (
-      <canvas
-        ref={canvasRef}
-        className={className}
-        aria-label="Remote screen"
-        role="img"
-      />
-    );
+    return <canvas ref={canvasRef} className={className} aria-label="Remote screen" role="img" />;
   },
 );

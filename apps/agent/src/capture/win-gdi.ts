@@ -1,4 +1,5 @@
 import { createLogger } from '../logger.js';
+import type sharpFactory from 'sharp';
 import type { RawFrame } from './encoder.js';
 
 const log = createLogger('capture-gdi');
@@ -15,6 +16,9 @@ type GdiApi = {
 
 let gdiApi: GdiApi | null = null;
 let gdiFailed = false;
+/** Reused across frames — a fresh 8 MB alloc + memset per frame costs more than the capture. */
+let scratchPixels: Buffer | null = null;
+let sharpModule: typeof sharpFactory | null = null;
 
 function bgraToRgba(buf: Buffer): void {
   for (let i = 0; i < buf.length; i += 4) {
@@ -22,6 +26,19 @@ function bgraToRgba(buf: Buffer): void {
     buf[i] = buf[i + 2]!;
     buf[i + 2] = b;
   }
+}
+
+function scratchFor(bytes: number): Buffer {
+  if (!scratchPixels || scratchPixels.length < bytes) {
+    scratchPixels = Buffer.allocUnsafe(bytes);
+  }
+  return scratchPixels.length === bytes ? scratchPixels : scratchPixels.subarray(0, bytes);
+}
+
+async function loadSharp(): Promise<typeof sharpFactory | null> {
+  if (sharpModule) return sharpModule;
+  sharpModule = await import('sharp').then((m) => m.default).catch(() => null);
+  return sharpModule;
 }
 
 async function loadGdiApi(): Promise<GdiApi | null> {
@@ -84,7 +101,7 @@ async function loadGdiApi(): Promise<GdiApi | null> {
           bmi.writeUInt16LE(32, 14);
           bmi.writeUInt32LE(BI_RGB, 16);
 
-          const pixels = Buffer.alloc(width * height * 4);
+          const pixels = scratchFor(width * height * 4);
           const lines = GetDIBits(hdcMem, hBitmap, 0, height, pixels, bmi, DIB_RGB_COLORS);
 
           DeleteObject(hBitmap);
@@ -93,21 +110,24 @@ async function loadGdiApi(): Promise<GdiApi | null> {
 
           if (!lines) return null;
 
-          bgraToRgba(pixels);
-
-          const sharp = await import('sharp').then((m) => m.default).catch(() => null);
+          const sharp = await loadSharp();
           if (!sharp) return null;
 
+          // Downscale while still BGRA (channel order does not affect resizing), then swap
+          // channels on the much smaller result instead of the full-resolution frame.
           const out = await sharp(pixels, { raw: { width, height, channels: 4 } })
             .resize({ width: maxWidth, withoutEnlargement: true, fastShrinkOnLoad: true })
             .ensureAlpha()
             .raw()
             .toBuffer({ resolveWithObject: true });
 
+          const rgba = Buffer.from(out.data);
+          bgraToRgba(rgba);
+
           return {
             width: out.info.width,
             height: out.info.height,
-            data: Buffer.from(out.data),
+            data: rgba,
           };
         } catch (err) {
           log.warn({ err }, 'GDI frame capture failed');

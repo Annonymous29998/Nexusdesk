@@ -1,15 +1,35 @@
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { WS_EVENTS } from '@nexusdesk/shared';
-import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, resolveAgentWsUrl, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
-import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey, type AgentTokens } from './auth.js';
+import {
+  AGENT_VERSION,
+  clearRuntimeState,
+  getDataDir,
+  loadEnv,
+  loadRuntimeState,
+  resolveAgentWsUrl,
+  saveRuntimeState,
+  shouldReenroll,
+  type AgentEnv,
+} from './config.js';
+import {
+  AgentAuthStore,
+  getOrCreateDeviceKeyPair,
+  resolveEncryptionKey,
+  type AgentTokens,
+} from './auth.js';
 import { enrollDevice } from './enroll.js';
 import { AgentConnection } from './connection.js';
 import { HeartbeatService } from './heartbeat.js';
 import { CommandHandler } from './commands.js';
 import { Streamer } from './stream.js';
 import { WebRtcStreamer } from './webrtc/video-stream.js';
-import { getStaticSystemInfo, listLocalIpAddresses, sampleDiskUsage, sampleRuntime } from './system/info.js';
+import {
+  getStaticSystemInfo,
+  listLocalIpAddresses,
+  sampleDiskUsage,
+  sampleRuntime,
+} from './system/info.js';
 import { acquireSingleInstance, releaseSingleInstance } from './single-instance.js';
 import { createLogger } from './logger.js';
 import { ensureGuestCursorVisible, type RemoteInputEvent } from './capture/input.js';
@@ -54,9 +74,9 @@ async function bootstrap(env: AgentEnv): Promise<void> {
   let tokens = auth.load();
 
   const enrollmentToken = env.AGENT_ENROLLMENT_TOKEN ?? env.AGENT_ENROLLMENT_SECRET;
-  const guestCode = env.GUEST_CODE ?? (
-    enrollmentToken && /^[A-Za-z0-9]{6,12}$/.test(enrollmentToken) ? enrollmentToken : undefined
-  );
+  const guestCode =
+    env.GUEST_CODE ??
+    (enrollmentToken && /^[A-Za-z0-9]{6,12}$/.test(enrollmentToken) ? enrollmentToken : undefined);
 
   if (shouldReenroll(state, Boolean(tokens), guestCode)) {
     log.info({ guestCode: guestCode ?? null, hadState: Boolean(state) }, 're-enrollment required');
@@ -114,10 +134,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     log.info({ wsUrl: wsBase }, 'migrated agent WebSocket URL');
   }
 
-  let connection!: AgentConnection;
   let activeTokens: AgentTokens = tokens!;
-  let webrtc: WebRtcStreamer | undefined;
-  let commandHandler!: CommandHandler;
 
   const refreshTokens = async (): Promise<string | null> => {
     const refreshed = await maybeRefreshDeviceToken(env, auth, activeTokens);
@@ -142,7 +159,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       }
     },
   });
-  webrtc = new WebRtcStreamer({
+  const webrtc: WebRtcStreamer = new WebRtcStreamer({
     fps: Math.min(30, env.AGENT_CAPTURE_FPS),
     maxWidth: env.AGENT_CAPTURE_MAX_WIDTH,
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -155,8 +172,11 @@ async function bootstrap(env: AgentEnv): Promise<void> {
         /* keep agent alive on bad input */
       }
     },
+    onVideoReady: (sessionId) => {
+      streamer.stop(sessionId, { keepInputSession: true });
+    },
   });
-  commandHandler = new CommandHandler({
+  const commandHandler: CommandHandler = new CommandHandler({
     deviceId: state.deviceId,
     env,
     streamer,
@@ -170,7 +190,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       });
     },
   });
-  connection = new AgentConnection({
+  const connection: AgentConnection = new AgentConnection({
     wsUrl: (() => {
       const base = wsBase.replace(/\/$/, '');
       return base.endsWith('/ws') ? base : `${base}/ws`;
