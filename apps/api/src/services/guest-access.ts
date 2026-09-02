@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '65';
+export const GUEST_INSTALLER_CACHE_BUST = '66';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -532,30 +532,32 @@ export class GuestAccessService {
   }
 
   /**
-   * Browser-facing launcher (.vbs): avoids Chrome blocking unsigned EXE downloads.
-   * Writes a small PowerShell helper, shows a live progress window instantly, downloads
-   * setup.exe, then launches the branded GUI installer.
+   * Browser-facing launcher (.vbs): Chrome-safe single download of agent-package.zip,
+   * then hidden PowerShell shows live progress through download + install + enroll.
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
-    const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
     const brand = installerBranding(template);
     const gui = guiInstallerBranding(template);
     const title = brand.windowTitle.replace(/"/g, '');
-    const guiName = installerGuiFilename(template).replace(/"/g, '');
     const brandLabel = gui.brandLabel.replace(/"/g, '');
-    const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
-    const accent = gui.accent.replace(/^#/, '');
-    const r = parseInt(accent.slice(0, 2), 16) || 11;
-    const g = parseInt(accent.slice(2, 4), 16) || 92;
-    const b = parseInt(accent.slice(4, 6), 16) || 255;
+    const directBase = resolveDirectApiBase(apiUrl.replace(/"/g, ''), getEnv().WS_URL).replace(
+      /"/g,
+      '',
+    );
+    const wsBase = getEnv().WS_URL.replace(/\/$/, '').replace(/\/ws$/i, '').replace(/"/g, '');
 
-    const ps1 = this.buildWindowsDownloadPs1({
+    const ps1 = this.buildWindowsOnePhaseInstallerPs1({
       title: brand.windowTitle,
       brand: gui.brandLabel,
       downloading: gui.downloadLabel || 'Downloading',
-      exeUrl: buildGuestExeUrl(base, safeCode, getEnv().WS_URL),
-      accent: { r, g, b },
+      installing: gui.installLabel || 'Installing',
+      finished: brand.closingEcho,
+      apiUrl: apiUrl.replace(/\/$/, ''),
+      guestCode: code,
+      wsUrl: wsBase,
+      zipUrl: `${directBase}/guest/${safeCode}/agent-package.zip?v=${GUEST_INSTALLER_CACHE_BUST}`,
+      accent: gui.accent,
     });
 
     const ps1WriteLines = ps1.split('\n').map((line) => {
@@ -565,7 +567,7 @@ export class GuestAccessService {
 
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, dataDir, setupExe, ps1Path, rc, app, elevated, stamp, f, exeUrl',
+      'Dim sh, fso, dataDir, ps1Path, rc, app, elevated, stamp, f',
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
@@ -587,10 +589,8 @@ export class GuestAccessService {
       'End If',
       '',
       'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
-      `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
-      'ps1Path = dataDir & "\\nd-download-" & stamp & ".ps1"',
+      'ps1Path = dataDir & "\\nd-install-" & stamp & ".ps1"',
       'On Error Resume Next',
-      'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
       'If fso.FileExists(ps1Path) Then fso.DeleteFile ps1Path, True',
       'On Error GoTo 0',
       '',
@@ -598,8 +598,7 @@ export class GuestAccessService {
       ...ps1WriteLines,
       'f.Close',
       '',
-      `exeUrl = "${exeUrl}"`,
-      'rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & ps1Path & """ """ & setupExe & """ """ & exeUrl & """", 0, False)',
+      'rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & ps1Path & """", 0, False)',
       'If rc <> 0 Then',
       `  MsgBox "Could not start setup. Open ${brandLabel} from your Downloads folder and try again.", 16, "${title}"`,
       '  WScript.Quit rc',
@@ -609,18 +608,31 @@ export class GuestAccessService {
     return lines.join('\r\n');
   }
 
-  /** PowerShell: instant WinForms progress + live WebClient download + launch setup.exe */
-  buildWindowsDownloadPs1(input: {
+  /** Single-phase: live progress UI, one zip download, then inline install/enroll. */
+  buildWindowsOnePhaseInstallerPs1(input: {
     title: string;
     brand: string;
     downloading: string;
-    exeUrl: string;
-    accent: { r: number; g: number; b: number };
+    installing: string;
+    finished: string;
+    apiUrl: string;
+    guestCode: string;
+    wsUrl: string;
+    zipUrl: string;
+    accent: string;
   }): string {
     const esc = (s: string) => s.replace(/'/g, "''");
-    const { r, g, b } = input.accent;
-    return [
-      'param([string]$OutFile, [string]$Uri)',
+    const accent = input.accent.replace(/^#/, '');
+    const r = parseInt(accent.slice(0, 2), 16) || 11;
+    const g = parseInt(accent.slice(2, 4), 16) || 92;
+    const b = parseInt(accent.slice(4, 6), 16) || 255;
+    const setupBody = this.buildWindowsInlineSetupScript({
+      apiUrl: input.apiUrl,
+      guestCode: input.guestCode.replace(/[^A-Za-z0-9]/g, ''),
+      wsUrl: input.wsUrl,
+    });
+
+    const uiLines = [
       "$ErrorActionPreference = 'Stop'",
       '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
       'Add-Type -AssemblyName System.Windows.Forms',
@@ -629,7 +641,13 @@ export class GuestAccessService {
       `$title = '${esc(input.title)}'`,
       `$brand = '${esc(input.brand)}'`,
       `$downloading = '${esc(input.downloading)}'`,
+      `$installing = '${esc(input.installing)}'`,
+      `$finished = '${esc(input.finished)}'`,
+      `$zipUri = '${esc(input.zipUrl)}'`,
       `$accent = [System.Drawing.Color]::FromArgb(${r}, ${g}, ${b})`,
+      "$PackageZip = Join-Path $env:ProgramData 'NexusDesk\\Agent\\package.zip'",
+      'New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackageZip) | Out-Null',
+      'if (Test-Path -LiteralPath $PackageZip) { Remove-Item -LiteralPath $PackageZip -Force -ErrorAction SilentlyContinue }',
       '$form = New-Object System.Windows.Forms.Form',
       '$form.Text = $title',
       '$form.Width = 480',
@@ -675,12 +693,16 @@ export class GuestAccessService {
       '  if ($msg) { $status.Text = $msg }',
       '  [System.Windows.Forms.Application]::DoEvents()',
       '}',
+      'function Invoke-AgentInstall {',
+      ...setupBody.split('\n'),
+      '}',
       '$form.Add_Shown({',
       "  Set-DownloadUI 0 ($downloading + '... 0%')",
       '  $script:wc = New-Object System.Net.WebClient',
       '  $script:wc.add_DownloadProgressChanged({',
       '    param($sender, $e)',
-      "    Set-DownloadUI $e.ProgressPercentage ($downloading + '... ' + $e.ProgressPercentage + '%')",
+      '    $dlPct = [Math]::Max(1, [int]($e.ProgressPercentage * 42 / 100))',
+      "    Set-DownloadUI $dlPct ($downloading + '... ' + $e.ProgressPercentage + '%')",
       '  })',
       '  $script:wc.add_DownloadFileCompleted({',
       '    param($sender, $e)',
@@ -690,16 +712,24 @@ export class GuestAccessService {
       '      [System.Windows.Forms.Application]::Exit()',
       '      return',
       '    }',
-      "    Set-DownloadUI 100 'Starting setup...'",
-      '    Start-Sleep -Milliseconds 400',
-      '    Start-Process -FilePath $OutFile',
+      "    Set-DownloadUI 45 ($installing + '...')",
+      '    try {',
+      '      Invoke-AgentInstall',
+      '      Set-DownloadUI 100 $finished',
+      '      $hint.Text = "You can close this window."',
+      '      Start-Sleep -Milliseconds 1200',
+      '    } catch {',
+      "      [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $title, 'OK', 'Error') | Out-Null",
+      '    }',
       '    $form.Close()',
       '    [System.Windows.Forms.Application]::Exit()',
       '  })',
-      '  $script:wc.DownloadFileAsync($Uri, $OutFile)',
+      '  $script:wc.DownloadFileAsync($zipUri, $PackageZip)',
       '})',
       '[System.Windows.Forms.Application]::Run($form)',
-    ].join('\n');
+    ];
+
+    return uiLines.join('\n');
   }
 
   /**
@@ -835,8 +865,8 @@ export class GuestAccessService {
       apiAssign,
       codeAssign,
       wsAssign,
-      '$PackageZip = $env:ND_PACKAGE_ZIP',
-      "if (-not $PackageZip) { $PackageZip = Join-Path $env:ProgramData 'NexusDesk\\Agent\\package.zip' }",
+      'if ($env:ND_PACKAGE_ZIP) { $PackageZip = $env:ND_PACKAGE_ZIP }',
+      "elseif (-not $PackageZip) { $PackageZip = Join-Path $env:ProgramData 'NexusDesk\\Agent\\package.zip' }",
       "$InstallRoot = Join-Path $env:ProgramFiles 'NexusDesk\\Agent'",
       "$DataDir = Join-Path $env:ProgramData 'NexusDesk\\Agent'",
       "$InstallLog = Join-Path $DataDir 'install.log'",
@@ -850,6 +880,12 @@ export class GuestAccessService {
       '$PublicFailed = Join-Path $PublicStatusDir ("setup-failed-$GuestCode.txt")',
       '$PublicProgress = Join-Path $PublicStatusDir ("setup-progress-$GuestCode.txt")',
       'function Write-ProgressStatus([int]$pct, [string]$msg) {',
+      '  if (Get-Command Set-DownloadUI -ErrorAction SilentlyContinue) {',
+      '    $uiPct = 45 + [Math]::Max(0, [Math]::Min(54, [int](($pct - 10) * 54 / 90)))',
+      '    if ($pct -ge 100) { $uiPct = 100 }',
+      '    Set-DownloadUI $uiPct $msg',
+      '    return',
+      '  }',
       '  try { [IO.File]::WriteAllText($PublicProgress, ("{0}|{1}" -f $pct, $msg)) } catch {}',
       '}',
       'function Clear-InstallDir([string]$path) {',

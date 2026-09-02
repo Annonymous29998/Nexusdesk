@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/config/env.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/config/env.js')>(
-    '../../src/config/env.js',
-  );
+  const actual = await vi.importActual('../../src/config/env.js');
   return {
     ...actual,
     getEnv: () => ({
-      ...actual.getEnv(),
+      ...(actual as { getEnv: () => Record<string, unknown> }).getEnv(),
       API_URL: 'http://192.168.18.5:4000',
       APP_URL: 'http://192.168.18.5:3000',
       WS_URL: 'ws://192.168.18.5:4000',
@@ -17,7 +15,8 @@ vi.mock('../../src/config/env.js', async () => {
 
 describe('Windows installer enrollment reset', () => {
   it('bat launcher downloads setup.ps1 and keeps the window open', async () => {
-    const { GuestAccessService, GUEST_INSTALLER_CACHE_BUST } = await import('../../src/services/guest-access.js');
+    const { GuestAccessService, GUEST_INSTALLER_CACHE_BUST } =
+      await import('../../src/services/guest-access.js');
     const service = new GuestAccessService({} as never);
     const bat = service.buildWindowsBatchLauncher('FF9A496P', 'http://192.168.18.5:4000');
 
@@ -29,13 +28,30 @@ describe('Windows installer enrollment reset', () => {
     expect(bat).not.toContain('setup.b64');
   });
 
+  it('vbs launcher uses single-phase agent zip install', async () => {
+    const { GuestAccessService, GUEST_INSTALLER_CACHE_BUST } =
+      await import('../../src/services/guest-access.js');
+    const service = new GuestAccessService({} as never);
+    const vbs = service.buildWindowsVbsLauncher('FF9A496P', 'http://192.168.18.5:4000', 'zoom');
+
+    expect(vbs).toContain('agent-package.zip');
+    expect(vbs).toContain('nd-install-');
+    expect(vbs).not.toContain('setupExe');
+    expect(vbs).toContain('-WindowStyle Hidden');
+    expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
+  });
+
   it('setup script clears stale state.json before starting the agent', async () => {
     const { GuestAccessService } = await import('../../src/services/guest-access.js');
     const service = new GuestAccessService({} as never);
     const script = service.buildWindowsInstallerScript('FF9A496P', 'http://192.168.18.5:4000');
 
-    expect(script).toContain("Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'state.json')");
-    expect(script).toContain("Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'tokens.enc')");
+    expect(script).toContain(
+      "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'state.json')",
+    );
+    expect(script).toContain(
+      "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'tokens.enc')",
+    );
     expect(script).toContain('Start-Process -FilePath $nodeExe');
     expect(script).toContain('if ($st.deviceId)');
     expect(script).toContain('Enrollment failed');
