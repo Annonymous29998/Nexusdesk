@@ -1,6 +1,7 @@
 import { AgentCommandType } from '@nexusdesk/types';
 import type { AgentEnv } from './config.js';
 import type { Streamer } from './stream.js';
+import type { WebRtcStreamer } from './webrtc/video-stream.js';
 import { createLogger } from './logger.js';
 import { captureScreenFrame } from './capture/screen.js';
 import { compressFrame } from './capture/encoder.js';
@@ -16,7 +17,9 @@ export interface CommandHandlerOptions {
   deviceId: string;
   env: AgentEnv;
   streamer: Streamer;
+  webrtc?: WebRtcStreamer;
   sendClipboard: (sessionId: string, text: string) => void;
+  onStreamError?: (sessionId: string, message: string) => void;
 }
 
 interface AgentCommand {
@@ -42,7 +45,9 @@ export class CommandHandler {
       return;
     }
     void handleRemoteInput(payload);
-    this.options.streamer.requestRefresh(payload.kind, payload.buttons);
+    if (this.options.env.AGENT_STREAM_MODE === 'jpeg') {
+      this.options.streamer.requestRefresh(payload.kind, payload.buttons);
+    }
   }
 
   async handle(raw: unknown): Promise<void> {
@@ -83,7 +88,20 @@ export class CommandHandler {
           const sessionId = String(command.payload?.sessionId ?? '');
           if (sessionId) {
             void prepareWindowsInput();
-            this.options.streamer.start(sessionId);
+            const mode = this.options.env.AGENT_STREAM_MODE;
+            if (mode === 'jpeg') {
+              this.options.streamer.start(sessionId);
+              return;
+            }
+            const webrtcStarted = this.options.webrtc
+              ? await this.options.webrtc.start(sessionId)
+              : false;
+            if (!webrtcStarted) {
+              const message =
+                'WebRTC unavailable on guest PC — reinstall the support agent (v0.1.19+).';
+              log.error({ sessionId }, message);
+              this.options.onStreamError?.(sessionId, message);
+            }
           }
           return;
         }
@@ -91,6 +109,7 @@ export class CommandHandler {
           const sessionId = command.payload?.sessionId
             ? String(command.payload.sessionId)
             : undefined;
+          this.options.webrtc?.stop(sessionId);
           this.options.streamer.stop(sessionId);
           return;
         }

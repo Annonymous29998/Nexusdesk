@@ -32,6 +32,7 @@
     "sharp": "^0.33.5",
     "systeminformation": "^5.25.11",
     "ws": "^8.18.0",
+    "@roamhq/wrtc": "^0.8.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

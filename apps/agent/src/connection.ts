@@ -15,6 +15,8 @@ export interface AgentConnectionOptions {
   onCommand: (command: unknown) => Promise<void> | void;
   /** Hot path — mouse/keyboard; must not block on async command handling. */
   onInput?: (payload: Record<string, unknown>) => void;
+  /** WebRTC signaling relayed from the dashboard viewer. */
+  onSignal?: (event: string, data: Record<string, unknown>) => void;
   onAuthError?: () => Promise<string | null>;
 }
 
@@ -85,6 +87,15 @@ export class AgentConnection {
 
   sendClipboard(sessionId: string, text: string): void {
     this.send(WS_EVENTS.clipboardSync, { sessionId, text });
+  }
+
+  /** Join a session room so signaling messages reach this agent. */
+  joinSession(sessionId: string): void {
+    this.send('session:join', { sessionId });
+  }
+
+  sendSignal(event: string, data: Record<string, unknown>): void {
+    this.send(event, data);
   }
 
   isOpen(): boolean {
@@ -190,6 +201,14 @@ export class AgentConnection {
           return;
         }
         void this.options.onCommand(msg.data);
+        return;
+      }
+      if (
+        msg.event === WS_EVENTS.signalAnswer ||
+        msg.event === WS_EVENTS.signalIce ||
+        msg.event === WS_EVENTS.signalHangup
+      ) {
+        this.options.onSignal?.(msg.event, msg.data ?? {});
         return;
       }
       if (msg.event === WS_EVENTS.ping) {

@@ -1,5 +1,3 @@
-declare module 'sharp';
+declare module '@roamhq/wrtc';
 declare module 'robotjs';
-declare module 'screenshot-desktop';
 declare module 'node-pty';
-declare module 'wrtc';

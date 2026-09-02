@@ -33,7 +33,7 @@ export async function createPeerConnection(options: PeerOptions): Promise<{
   close: () => void;
 }> {
   try {
-    const wrtcMod = (await import('wrtc').catch(() => null)) as {
+    const wrtcMod = (await import('@roamhq/wrtc').catch(() => null)) as {
       RTCPeerConnection?: new (config: { iceServers: IceServerConfig[] }) => {
         onicecandidate: ((event: { candidate: { toJSON: () => Record<string, unknown> } | null }) => void) | null;
         ontrack: ((event: { streams: unknown[] }) => void) | null;

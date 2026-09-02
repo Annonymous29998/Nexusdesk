@@ -19,6 +19,7 @@ export interface ScreenStreamOptions {
   onStatus?: (status: StreamStatus, detail?: string) => void;
   onFrame?: (jpegBase64: string) => void;
   onClipboard?: (text: string) => void;
+  onSignal?: (event: string, data: Record<string, unknown>) => void;
 }
 
 export interface InputEvent {
@@ -148,6 +149,15 @@ export class ScreenStreamClient {
         return;
       }
 
+      if (
+        msg.event === WS_EVENTS.signalOffer ||
+        msg.event === WS_EVENTS.signalAnswer ||
+        msg.event === WS_EVENTS.signalIce
+      ) {
+        this.options.onSignal?.(msg.event, msg.data ?? {});
+        return;
+      }
+
       if (msg.event === WS_EVENTS.authError) {
         this.options.onStatus?.('error', String(msg.data?.message ?? 'Auth failed'));
       }
@@ -225,6 +235,10 @@ export class ScreenStreamClient {
   /** Paste local text into the remote session. */
   pasteToRemote(text: string): void {
     this.sendInput({ kind: 'clipboard-paste', text });
+  }
+
+  sendSignal(event: string, data: Record<string, unknown>): void {
+    this.send({ event, data: { sessionId: this.options.sessionId, ...data } });
   }
 
   private send(payload: unknown): void {

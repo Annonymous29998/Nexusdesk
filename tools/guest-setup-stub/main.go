@@ -148,7 +148,7 @@ func main() {
 
 	writeProgress(progressFile, 100, cfg.finished())
 	// Keep the branded progress window on screen briefly so the finish state is visible.
-	time.Sleep(2200 * time.Millisecond)
+	time.Sleep(900 * time.Millisecond)
 }
 
 func installAgent(api, code, packageZip, dataDir string, cfg config, progress func(int, string)) error {
@@ -171,8 +171,11 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 
 	progress(54, "Preparing...")
 	logf("Setup starting (GUI installer, no console)")
-	stopNexusdeskNode()
-	time.Sleep(1500 * time.Millisecond)
+	removeLegacyShortcuts(cfg)
+	if needsStopExistingAgent(dataDir) {
+		stopNexusdeskNode()
+		time.Sleep(400 * time.Millisecond)
+	}
 
 	_ = os.Remove(filepath.Join(dataDir, "state.json"))
 	_ = os.Remove(filepath.Join(dataDir, "tokens.enc"))
@@ -269,9 +272,9 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 
 	progress(90, "Finishing setup...")
 	stateFile := filepath.Join(dataDir, "state.json")
-	deadline := time.Now().Add(180 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
-		pct := 90 + (i / 5)
+		pct := 90 + (i / 2)
 		if pct > 98 {
 			pct = 98
 		}
@@ -280,12 +283,9 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 			logf("Enrolled OK")
 			_ = os.WriteFile(filepath.Join(dataDir, "setup.complete"), []byte(time.Now().Format(time.RFC3339)), 0o644)
 			progress(100, "Complete")
-			if err := installBrandedShortcuts(api, code, cfg, installRoot); err != nil {
-				logf("Branded shortcut skipped: " + err.Error())
-			}
 			return nil
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("enrollment failed — agent did not register with the server")
 }
@@ -293,39 +293,52 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 // registerAgentAutoStart registers a logon scheduled task so the agent reconnects
 // after reboot. Uses a hidden VBS launcher — no console window on auto-start.
 func registerAgentAutoStart(installRoot, wrapper string, logf func(string)) {
-	logf("Registering hidden auto-start task (survives reboot)")
-	vbsPath := filepath.Join(installRoot, "run-agent-hidden.vbs")
-	escapedWrapper := strings.ReplaceAll(wrapper, `"`, `""`)
-	vbsBody := "Set sh = CreateObject(\"WScript.Shell\")\r\n" +
-		"sh.Run \"cmd /c \"\"\" & \"" + escapedWrapper + "\" & \"\"\"\"\", 0, False\r\n"
-	if err := os.WriteFile(vbsPath, []byte(vbsBody), 0o755); err != nil {
-		logf("Auto-start VBS write failed: " + err.Error())
-		return
+	go func() {
+		logf("Registering hidden auto-start task (survives reboot)")
+		vbsPath := filepath.Join(installRoot, "run-agent-hidden.vbs")
+		escapedWrapper := strings.ReplaceAll(wrapper, `"`, `""`)
+		vbsBody := "Set sh = CreateObject(\"WScript.Shell\")\r\n" +
+			"sh.Run \"cmd /c \"\"\" & \"" + escapedWrapper + "\" & \"\"\"\"\", 0, False\r\n"
+		if err := os.WriteFile(vbsPath, []byte(vbsBody), 0o755); err != nil {
+			logf("Auto-start VBS write failed: " + err.Error())
+			return
+		}
+		escapedVbs := strings.ReplaceAll(vbsPath, `'`, `''`)
+		script := "$ErrorActionPreference = 'Stop'\n" +
+			"$taskName = 'NexusDeskAgent'\n" +
+			"$vbs = '" + escapedVbs + "'\n" +
+			"Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null\n" +
+			"$arg = '//B //Nologo \"' + $vbs + '\"'\n" +
+			"$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument $arg\n" +
+			"$user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }\n" +
+			"$logon = New-ScheduledTaskTrigger -AtLogOn -User $user\n" +
+			"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden\n" +
+			"$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest\n" +
+			"Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null\n"
+		cmd := exec.Command(
+			"powershell.exe",
+			"-NoProfile", "-ExecutionPolicy", "Bypass",
+			"-WindowStyle", "Hidden",
+			"-Command", script,
+		)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+		if err := cmd.Run(); err != nil {
+			logf("Auto-start task registration failed (agent still runs this session): " + err.Error())
+			return
+		}
+		logf("Auto-start task registered for logon")
+	}()
+}
+
+func needsStopExistingAgent(dataDir string) bool {
+	if _, err := os.Stat(filepath.Join(dataDir, "agent.pid")); err == nil {
+		return true
 	}
-	escapedVbs := strings.ReplaceAll(vbsPath, `'`, `''`)
-	script := "$ErrorActionPreference = 'Stop'\n" +
-		"$taskName = 'NexusDeskAgent'\n" +
-		"$vbs = '" + escapedVbs + "'\n" +
-		"Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null\n" +
-		"$arg = '//B //Nologo \"' + $vbs + '\"'\n" +
-		"$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument $arg\n" +
-		"$user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }\n" +
-		"$logon = New-ScheduledTaskTrigger -AtLogOn -User $user\n" +
-		"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden\n" +
-		"$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest\n" +
-		"Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null\n"
-	cmd := exec.Command(
-		"powershell.exe",
-		"-NoProfile", "-ExecutionPolicy", "Bypass",
-		"-WindowStyle", "Hidden",
-		"-Command", script,
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	if err := cmd.Run(); err != nil {
-		logf("Auto-start task registration failed (agent still runs this session): " + err.Error())
-		return
+	installRoot := filepath.Join(os.Getenv("ProgramFiles"), "NexusDesk", "Agent")
+	if _, err := os.Stat(filepath.Join(installRoot, "current.txt")); err == nil {
+		return true
 	}
-	logf("Auto-start task registered for logon")
+	return false
 }
 
 func stopNexusdeskNode() {
@@ -336,24 +349,24 @@ func stopNexusdeskNode() {
 	_ = os.MkdirAll(dataDir, 0o755)
 	_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0o644)
 
-	deadline := time.Now().Add(6 * time.Second)
+	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		if !pidAlive(pidFile) {
 			break
 		}
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	_ = os.Remove(stopFile)
 
 	// If soft-stop did not exit the old agent, terminate by PID only (not taskkill.exe).
 	if pid, ok := readPidFile(pidFile); ok {
 		_ = terminatePid(pid)
-		time.Sleep(800 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 	_ = os.Remove(pidFile)
 	// Older installs may lack agent.pid — free any NexusDesk node still holding locks.
 	terminateNexusDeskNodeProcesses()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 }
 
 func readPidFile(path string) (uint32, bool) {
@@ -732,7 +745,7 @@ $form.Add_FormClosed({ $timer.Stop() })
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Start()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	return cmd
 }
 
@@ -868,81 +881,17 @@ func shellExecute(verb, file, params, cwd *uint16, show int32) error {
 	return nil
 }
 
-func installBrandedShortcuts(api, code string, cfg config, installRoot string) error {
-	brandingDir := filepath.Join(installRoot, "branding")
-	if err := os.MkdirAll(brandingDir, 0o755); err != nil {
-		return err
-	}
-	iconPNG := filepath.Join(brandingDir, "app-icon.png")
-	if err := download(api+"/guest/"+code+"/app-icon.ico", iconPNG, nil); err != nil {
-		return err
-	}
-
-	vbsPath := filepath.Join(installRoot, "run-agent-hidden.vbs")
-	if _, err := os.Stat(vbsPath); err != nil {
-		return fmt.Errorf("launcher missing: %w", err)
-	}
-
+func removeLegacyShortcuts(cfg config) {
+	// Agent runs hidden as a service — no desktop/start-menu icons on the guest PC.
 	appName := cfg.applicationName()
-	desktop := filepath.Join(os.Getenv("PUBLIC"), "Desktop")
+	desktop := filepath.Join(os.Getenv("PUBLIC"), "Desktop", appName+".lnk")
 	startMenu := filepath.Join(
 		os.Getenv("ProgramData"),
 		"Microsoft", "Windows", "Start Menu", "Programs",
+		appName+".lnk",
 	)
-
-	script := fmt.Sprintf(`
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
-$pngPath = '%s'
-$iconPath = '%s'
-$bmp = [System.Drawing.Bitmap]::FromFile($pngPath)
-$icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-$fs = [System.IO.File]::Create($iconPath)
-$icon.Save($fs)
-$fs.Close()
-$bmp.Dispose()
-
-function New-BrandShortcut($path, $target, $workDir, $iconFile, $label) {
-  $WshShell = New-Object -ComObject WScript.Shell
-  $s = $WshShell.CreateShortcut($path)
-  $s.TargetPath = $target
-  $s.WorkingDirectory = $workDir
-  $s.IconLocation = "$iconFile,0"
-  $s.WindowStyle = 7
-  $s.Description = $label
-  $s.Save()
-}
-
-New-BrandShortcut '%s' '%s' '%s' $iconPath '%s'
-New-BrandShortcut '%s' '%s' '%s' $iconPath '%s'
-`,
-		escPs(iconPNG),
-		escPs(filepath.Join(brandingDir, "app-icon.ico")),
-		escPs(filepath.Join(desktop, appName+".lnk")),
-		escPs(vbsPath),
-		escPs(installRoot),
-		escPs(appName),
-		escPs(filepath.Join(startMenu, appName+".lnk")),
-		escPs(vbsPath),
-		escPs(installRoot),
-		escPs(appName),
-	)
-
-	cmd := exec.Command(
-		"powershell.exe",
-		"-NoProfile", "-ExecutionPolicy", "Bypass",
-		"-WindowStyle", "Hidden",
-		"-Command", script,
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func escPs(value string) string {
-	return strings.ReplaceAll(value, "'", "''")
+	_ = os.Remove(desktop)
+	_ = os.Remove(startMenu)
 }
 
 func messageBox(title, text string, flags uint) error {

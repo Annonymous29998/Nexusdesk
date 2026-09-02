@@ -58,6 +58,8 @@ const envSchema = z.object({
   AGENT_CAPTURE_QUALITY: envInt.default(40),
   /** Max width sent to viewers — keeps stream fast on high-res displays. */
   AGENT_CAPTURE_MAX_WIDTH: envInt.default(960),
+  /** Screen transport: webrtc (default) uses H.264/VP8/VP9 + DataChannel; jpeg is legacy debug only. */
+  AGENT_STREAM_MODE: z.enum(['webrtc', 'jpeg']).default('webrtc'),
   /** Hide guest cursor and skip mouse-move injection while a viewer is connected. */
   AGENT_STEALTH_INPUT: z
     .enum(['true', 'false', '1', '0'])
@@ -129,7 +131,7 @@ export function shouldReenroll(
   return (state.guestCode ?? '').toUpperCase() !== guestCode.trim().toUpperCase();
 }
 
-export const AGENT_VERSION = '0.1.16';
+export const AGENT_VERSION = '0.1.19';
 
 /** Prefer env WS_URL and migrate away from Vercel-proxied frontend WebSocket hosts. */
 export function resolveAgentWsUrl(stateWsUrl: string, envWsUrl: string): string {

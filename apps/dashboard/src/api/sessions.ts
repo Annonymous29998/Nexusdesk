@@ -123,3 +123,22 @@ export async function endSession(orgId: string, sessionId: string): Promise<Sess
     },
   );
 }
+
+export interface TurnCredentialsResponse {
+  iceServers: RTCIceServer[];
+  ttl?: number;
+}
+
+export async function getTurnCredentials(
+  orgId: string,
+  sessionId: string,
+): Promise<TurnCredentialsResponse> {
+  const path = buildApiPath(API_ROUTES.connections.turn, { orgId, sessionId });
+  return withDemoFallback(
+    () => apiRequest<TurnCredentialsResponse>(path),
+    async () => {
+      await delay();
+      return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    },
+  );
+}

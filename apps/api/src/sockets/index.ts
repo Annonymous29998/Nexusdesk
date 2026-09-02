@@ -116,13 +116,33 @@ export function registerSocketHandlers(app: FastifyInstance): void {
     }
   }
 
-  function broadcast(sessionId: string, from: SocketClient, event: string, data: unknown) {
-    const room = sessionRooms.get(sessionId);
-    if (!room) return;
+  function relaySignaling(sessionId: string, from: SocketClient, event: string, data: unknown) {
+    joinSession(sessionId, from);
     const payload = JSON.stringify({ event, data });
-    for (const peer of room) {
-      if (peer !== from && peer.socket.readyState === 1) {
-        peer.socket.send(payload);
+    const delivered = new Set<SocketClient>();
+
+    const room = sessionRooms.get(sessionId);
+    if (room) {
+      for (const peer of room) {
+        if (peer !== from && peer.socket.readyState === 1) {
+          peer.socket.send(payload);
+          delivered.add(peer);
+        }
+      }
+    }
+
+    // Also deliver via active stream session (viewer may not have joined sessionRooms yet).
+    const entry = streamSessions.get(sessionId);
+    if (entry) {
+      for (const viewer of entry.viewers) {
+        if (viewer !== from && !delivered.has(viewer) && viewer.socket.readyState === 1) {
+          viewer.socket.send(payload);
+          delivered.add(viewer);
+        }
+      }
+      const agent = agents.get(entry.deviceId);
+      if (agent && agent !== from && !delivered.has(agent) && agent.socket.readyState === 1) {
+        agent.socket.send(payload);
       }
     }
   }
@@ -339,7 +359,7 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             streamSessions.set(sessionId, entry);
           }
           entry.viewers.add(client);
-          client.sessionId = sessionId;
+          joinSession(sessionId, client);
           const online = app.agentGateway.isOnline(deviceId);
           log.info({ sessionId, deviceId, online }, 'viewer start');
           socket.send(
@@ -353,6 +373,8 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             }),
           );
           if (online) {
+            const agentClient = agents.get(deviceId);
+            if (agentClient) joinSession(sessionId, agentClient);
             const sent = app.agentGateway.sendCommand(deviceId, {
               type: 'start_stream',
               payload: { sessionId },
@@ -397,7 +419,7 @@ export function registerSocketHandlers(app: FastifyInstance): void {
             return;
           }
           joinSession(sessionId, client);
-          broadcast(sessionId, client, event, data);
+          relaySignaling(sessionId, client, event, data);
           return;
         }
 

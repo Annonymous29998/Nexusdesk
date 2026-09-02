@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { WS_EVENTS } from '@nexusdesk/shared';
 import { AGENT_VERSION, clearRuntimeState, getDataDir, loadEnv, loadRuntimeState, resolveAgentWsUrl, saveRuntimeState, shouldReenroll, type AgentEnv } from './config.js';
 import { AgentAuthStore, getOrCreateDeviceKeyPair, resolveEncryptionKey, type AgentTokens } from './auth.js';
 import { enrollDevice } from './enroll.js';
@@ -7,6 +8,7 @@ import { AgentConnection } from './connection.js';
 import { HeartbeatService } from './heartbeat.js';
 import { CommandHandler } from './commands.js';
 import { Streamer } from './stream.js';
+import { WebRtcStreamer } from './webrtc/video-stream.js';
 import { getStaticSystemInfo, listLocalIpAddresses, sampleDiskUsage, sampleRuntime } from './system/info.js';
 import { acquireSingleInstance, releaseSingleInstance } from './single-instance.js';
 import { createLogger } from './logger.js';
@@ -112,8 +114,10 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     log.info({ wsUrl: wsBase }, 'migrated agent WebSocket URL');
   }
 
-  let connection: AgentConnection;
+  let connection!: AgentConnection;
   let activeTokens: AgentTokens = tokens!;
+  let webrtc: WebRtcStreamer | undefined;
+  let commandHandler!: CommandHandler;
 
   const refreshTokens = async (): Promise<string | null> => {
     const refreshed = await maybeRefreshDeviceToken(env, auth, activeTokens);
@@ -138,11 +142,33 @@ async function bootstrap(env: AgentEnv): Promise<void> {
       }
     },
   });
-  const commands = new CommandHandler({
+  webrtc = new WebRtcStreamer({
+    fps: Math.min(30, env.AGENT_CAPTURE_FPS),
+    maxWidth: env.AGENT_CAPTURE_MAX_WIDTH,
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    sendSignal: (event, data) => connection.sendSignal(event, data),
+    joinSession: (sessionId) => connection.joinSession(sessionId),
+    onInput: (payload) => {
+      try {
+        void commandHandler.handleInput(payload);
+      } catch {
+        /* keep agent alive on bad input */
+      }
+    },
+  });
+  commandHandler = new CommandHandler({
     deviceId: state.deviceId,
     env,
     streamer,
+    webrtc,
     sendClipboard: (sessionId, text) => connection.sendClipboard(sessionId, text),
+    onStreamError: (sessionId, message) => {
+      connection.sendScreenStatus({
+        sessionId,
+        deviceOnline: true,
+        captureError: message,
+      });
+    },
   });
   connection = new AgentConnection({
     wsUrl: (() => {
@@ -152,12 +178,28 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     getToken: () => auth.load()?.deviceToken ?? activeTokens.deviceToken,
     onAuthError: refreshTokens,
     maxReconnectDelayMs: env.AGENT_MAX_RECONNECT_DELAY_MS,
-    onCommand: (command) => commands.handle(command),
+    onCommand: (command) => commandHandler.handle(command),
     onInput: (data) => {
       try {
-        void commands.handleInput(data as unknown as RemoteInputEvent);
+        void commandHandler.handleInput(data as unknown as RemoteInputEvent);
       } catch {
         /* keep agent alive on bad input */
+      }
+    },
+    onSignal: (event, data) => {
+      const sessionId = String(data.sessionId ?? '');
+      if (!sessionId || !webrtc) return;
+      if (event === WS_EVENTS.signalAnswer && typeof data.sdp === 'string') {
+        void webrtc.handleAnswer(sessionId, data.sdp);
+        return;
+      }
+      if (event === WS_EVENTS.signalIce && typeof data.candidate === 'string') {
+        void webrtc.handleIceCandidate(
+          sessionId,
+          data.candidate,
+          typeof data.sdpMid === 'string' ? data.sdpMid : null,
+          typeof data.sdpMLineIndex === 'number' ? data.sdpMLineIndex : null,
+        );
       }
     },
   });
@@ -211,6 +253,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     log.info({ signal }, 'shutting down');
     heartbeat.stop();
     streamer.stop();
+    webrtc?.stop();
     await ensureGuestCursorVisible();
     await connection.close();
     clearPidFile();

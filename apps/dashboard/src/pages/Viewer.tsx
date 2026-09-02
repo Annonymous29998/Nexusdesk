@@ -7,13 +7,9 @@ import { getSession, endSession } from '@/api/sessions';
 import { getDevice } from '@/api/devices';
 import { LoadingBlock } from '@/components/common/ui';
 import { useOrgId } from '@/hooks/useDevices';
-import { ScreenStreamClient, type StreamStatus } from '@/lib/screen-stream';
+import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
 import { formatDuration } from '@/lib/utils';
 import { useActiveViewerStore } from '@/stores/active-viewer';
-import {
-  RemoteScreenFrame,
-  type RemoteScreenFrameHandle,
-} from '@/components/viewer/RemoteScreenFrame';
 
 const STATUS_LABEL: Record<StreamStatus, string> = {
   idle: 'idle',
@@ -37,8 +33,8 @@ export function ViewerPage() {
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
-  const clientRef = useRef<ScreenStreamClient | null>(null);
-  const frameRef = useRef<RemoteScreenFrameHandle>(null);
+  const clientRef = useRef<RemoteStreamClient | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
@@ -220,7 +216,8 @@ export function ViewerPage() {
     if (!sessionId || !deviceId) return;
     gotFirstFrameRef.current = false;
     setShowScreen(false);
-    const client = new ScreenStreamClient({
+    const client = new RemoteStreamClient({
+      orgId: orgId!,
       sessionId,
       deviceId,
       onStatus: (s, d) => {
@@ -228,12 +225,15 @@ export function ViewerPage() {
         setStatus((prev) => (prev === s ? prev : s));
         setDetail((prev) => (prev === d ? prev : d));
       },
-      onFrame: (jpegBase64) => {
+      onVideoStream: (stream) => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        void video.play().catch(() => undefined);
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
         }
-        frameRef.current?.setFrame(jpegBase64);
       },
       onClipboard: (text) => {
         void applyRemoteClipboard(text);
@@ -249,7 +249,7 @@ export function ViewerPage() {
       client.close({ stopStream: !minimizingRef.current });
       clientRef.current = null;
     };
-  }, [sessionId, deviceId]);
+  }, [sessionId, deviceId, orgId]);
 
   if (session.isLoading) return <LoadingBlock label="Opening session…" />;
   if (!session.data) {
@@ -369,8 +369,11 @@ export function ViewerPage() {
               clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
             }}
           >
-            <RemoteScreenFrame
-              ref={frameRef}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
               className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl object-contain"
             />
             {localPointer ? (

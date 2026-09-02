@@ -4,12 +4,8 @@ import { Button } from '@nexusdesk/ui';
 import { Maximize2, Monitor, Wifi, WifiOff, X } from 'lucide-react';
 import { endSession } from '@/api/sessions';
 import { useOrgId } from '@/hooks/useDevices';
-import { ScreenStreamClient, type StreamStatus } from '@/lib/screen-stream';
+import { RemoteStreamClient, type StreamStatus } from '@/lib/remote-stream';
 import { useActiveViewerStore } from '@/stores/active-viewer';
-import {
-  RemoteScreenFrame,
-  type RemoteScreenFrameHandle,
-} from '@/components/viewer/RemoteScreenFrame';
 
 /**
  * Floating mini viewer shown after Minimize — keeps the remote session streaming
@@ -22,8 +18,8 @@ export function MinimizedViewerDock() {
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [showScreen, setShowScreen] = useState(false);
-  const clientRef = useRef<ScreenStreamClient | null>(null);
-  const frameRef = useRef<RemoteScreenFrameHandle>(null);
+  const clientRef = useRef<RemoteStreamClient | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const gotFirstFrameRef = useRef(false);
 
   useEffect(() => {
@@ -36,16 +32,20 @@ export function MinimizedViewerDock() {
       return;
     }
 
-    const client = new ScreenStreamClient({
+    const client = new RemoteStreamClient({
+      orgId: orgId ?? '',
       sessionId: minimized.sessionId,
       deviceId: minimized.deviceId,
       onStatus: (s) => setStatus(s),
-      onFrame: (jpegBase64) => {
+      onVideoStream: (stream) => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        void video.play().catch(() => undefined);
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
         }
-        frameRef.current?.setFrame(jpegBase64);
       },
     });
     clientRef.current = client;
@@ -55,7 +55,7 @@ export function MinimizedViewerDock() {
       client.close();
       if (clientRef.current === client) clientRef.current = null;
     };
-  }, [minimized?.sessionId, minimized?.deviceId]);
+  }, [minimized?.sessionId, minimized?.deviceId, orgId]);
 
   if (!minimized) return null;
 
@@ -117,13 +117,16 @@ export function MinimizedViewerDock() {
         aria-label="Restore full viewer"
       >
         {showScreen ? (
-          <RemoteScreenFrame
-            ref={frameRef}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
             className="aspect-video w-full object-contain"
           />
         ) : (
           <div className="flex aspect-video items-center justify-center text-xs text-slate-400">
-            Waiting for screen…
+            Connecting WebRTC…
           </div>
         )}
       </button>

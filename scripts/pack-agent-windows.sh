@@ -72,10 +72,12 @@ const pkg = {
 fs.writeFileSync(path.join(staging, 'package.json'), JSON.stringify(pkg, null, 2));
 NODE
 
-echo "==> Installing production dependencies into package"
+echo "==> Installing production dependencies into package (Windows x64)"
 (
   cd "$STAGING"
-  npm install --omit=dev --no-audit --no-fund
+  npm install --omit=dev --no-audit --no-fund --os=win32 --cpu=x64
+  # Platform-specific WebRTC native module required on guest Windows PCs.
+  npm install @roamhq/wrtc-win32-x64 --omit=dev --no-audit --no-fund --no-save --force --os=win32 --cpu=x64
 )
 
 echo "==> Creating zip"
