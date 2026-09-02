@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '69';
+export const GUEST_INSTALLER_CACHE_BUST = '70';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -532,29 +532,35 @@ export class GuestAccessService {
   }
 
   /**
-   * Browser-facing launcher (.vbs): Chrome-safe download. After UAC, VBS fetches
-   * the GUI setup.exe (curl, with standard powershell.exe fallback) and runs it.
-   * Does not require powershellw.exe — that binary is missing on most Windows PCs.
+   * Browser-facing launcher (.vbs): one agent-package.zip download (curl, with
+   * standard powershell.exe fallback), then the proven windows.ps1 install.
+   * No setup.exe hop and no powershellw.exe.
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
     const brand = installerBranding(template);
     const title = brand.windowTitle.replace(/"/g, '');
-    const guiName = installerGuiFilename(template).replace(/"/g, '');
     const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(
       /"/g,
       '',
     );
-    const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
+    const directBase = resolveDirectApiBase(base, getEnv().WS_URL).replace(/"/g, '');
+    const zipUrl =
+      `${directBase}/guest/${safeCode}/agent-package.zip?v=${GUEST_INSTALLER_CACHE_BUST}`.replace(
+        /"/g,
+        '',
+      );
+    const setupUrl =
+      `${base}/guest/${safeCode}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`.replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated, stamp',
-      `apiUrl = "${base}"`,
-      `guestCode = "${safeCode}"`,
+      'Dim sh, fso, dataDir, packageZip, setupPs1, curl, cmd, psCmd, rc, app, elevated',
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
+      'packageZip = dataDir & "\\package.zip"',
+      'setupPs1 = dataDir & "\\nd-setup.ps1"',
       'On Error Resume Next',
       'If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk") Then',
       '  fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk"',
@@ -577,26 +583,39 @@ export class GuestAccessService {
       '  WScript.Quit 0',
       'End If',
       '',
-      `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
-      '',
-      // Unique filename per run so a leftover/locked setup .exe never blocks us.
-      'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
-      `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
       'On Error Resume Next',
-      'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
+      'If fso.FileExists(packageZip) Then fso.DeleteFile packageZip, True',
+      'If fso.FileExists(setupPs1) Then fso.DeleteFile setupPs1, True',
       'On Error GoTo 0',
-      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
-      'rc = sh.Run("cmd /c " & cmd, 0, True)',
-      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
-      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${exeUrl}' -OutFile '" & setupExe & "' -UseBasicParsing"""`,
+      '',
+      // Visible curl window so the guest sees live % for the one large download.
+      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 1200 --progress-bar -o " & Chr(34) & packageZip & Chr(34) & " " & Chr(34) & "${zipUrl}" & Chr(34)`,
+      `rc = sh.Run("cmd /c title ${title.replace(/&/g, '')} & echo ${downloading.replace(/&/g, '')}... & " & cmd, 1, True)`,
+      'If rc <> 0 Or Not fso.FileExists(packageZip) Then',
+      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${zipUrl}' -OutFile '" & packageZip & "' -UseBasicParsing"""`,
       '  rc = sh.Run(psCmd, 0, True)',
       'End If',
-      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
+      'If rc <> 0 Or Not fso.FileExists(packageZip) Then',
       `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
       '  WScript.Quit 1',
       'End If',
       '',
-      'rc = sh.Run(Chr(34) & setupExe & Chr(34), 1, True)',
+      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 120 -o " & Chr(34) & setupPs1 & Chr(34) & " " & Chr(34) & "${setupUrl}" & Chr(34)`,
+      'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'If rc <> 0 Or Not fso.FileExists(setupPs1) Then',
+      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${setupUrl}' -OutFile '" & setupPs1 & "' -UseBasicParsing"""`,
+      '  rc = sh.Run(psCmd, 0, True)',
+      'End If',
+      'If rc <> 0 Or Not fso.FileExists(setupPs1) Then',
+      `  MsgBox "Could not start setup. Check that this PC can reach the server.", 16, "${title}"`,
+      '  WScript.Quit 1',
+      'End If',
+      '',
+      `sh.Environment("Process")("ND_API_URL") = "${base}"`,
+      `sh.Environment("Process")("ND_GUEST_CODE") = "${safeCode}"`,
+      'sh.Environment("Process")("ND_PACKAGE_ZIP") = packageZip',
+      'psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & setupPs1 & Chr(34)',
+      'rc = sh.Run(psCmd, 0, True)',
       'If rc <> 0 Then',
       `  MsgBox "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
       '  WScript.Quit rc',
