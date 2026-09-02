@@ -6,6 +6,10 @@ import { endSession } from '@/api/sessions';
 import { useOrgId } from '@/hooks/useDevices';
 import { ScreenStreamClient, type StreamStatus } from '@/lib/screen-stream';
 import { useActiveViewerStore } from '@/stores/active-viewer';
+import {
+  RemoteScreenFrame,
+  type RemoteScreenFrameHandle,
+} from '@/components/viewer/RemoteScreenFrame';
 
 /**
  * Floating mini viewer shown after Minimize — keeps the remote session streaming
@@ -18,8 +22,8 @@ export function MinimizedViewerDock() {
   const clearMinimized = useActiveViewerStore((s) => s.clearMinimized);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [showScreen, setShowScreen] = useState(false);
-  const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
+  const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const gotFirstFrameRef = useRef(false);
   const pendingFrameRef = useRef<string | null>(null);
   const frameRafRef = useRef<number | null>(null);
@@ -29,7 +33,6 @@ export function MinimizedViewerDock() {
       clientRef.current?.close();
       clientRef.current = null;
       gotFirstFrameRef.current = false;
-      setCurrentFrame(null);
       setShowScreen(false);
       setStatus('idle');
       return;
@@ -40,8 +43,7 @@ export function MinimizedViewerDock() {
       deviceId: minimized.deviceId,
       onStatus: (s) => setStatus(s),
       onFrame: (jpegBase64) => {
-        const src = `data:image/jpeg;base64,${jpegBase64}`;
-        pendingFrameRef.current = src;
+        pendingFrameRef.current = jpegBase64;
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
@@ -51,7 +53,7 @@ export function MinimizedViewerDock() {
             frameRafRef.current = null;
             const latest = pendingFrameRef.current;
             pendingFrameRef.current = null;
-            if (latest) setCurrentFrame(latest);
+            if (latest) frameRef.current?.setFrame(latest);
           });
         }
       },
@@ -130,11 +132,9 @@ export function MinimizedViewerDock() {
         aria-label="Restore full viewer"
       >
         {showScreen ? (
-          <img
-            src={currentFrame ?? undefined}
-            alt="Remote screen preview"
+          <RemoteScreenFrame
+            ref={frameRef}
             className="aspect-video w-full object-contain"
-            draggable={false}
           />
         ) : (
           <div className="flex aspect-video items-center justify-center text-xs text-slate-400">

@@ -26,7 +26,7 @@ export interface StreamerOptions {
   onCaptureError?: (message: string, sessionIds: string[]) => void;
 }
 
-const BURST_DELAYS_MS = [0, 35, 75, 120, 180, 250];
+const BURST_DELAYS_MS = [0, 16, 33, 50, 80, 120, 180];
 
 /**
  * Captures the screen at a fixed frame rate and pushes JPEG frames (base64)
@@ -40,6 +40,7 @@ export class Streamer {
   private readonly sessions = new Set<string>();
   private busy = false;
   private queuedCaptures = 0;
+  private urgentQueued = false;
   private warnedNoCapture = false;
   private consecutiveFailures = 0;
   private readonly targetIntervalMs: number;
@@ -89,9 +90,11 @@ export class Streamer {
   }
 
   /** Push extra frames after remote input so toggles and page changes appear on the dashboard. */
-  requestRefresh(kind?: string): void {
+  requestRefresh(kind?: string, buttons?: number): void {
     if (this.sessions.size === 0) return;
+    const dragging = kind === 'mouse-move' && (buttons ?? 0) > 0;
     const urgent =
+      dragging ||
       kind === 'mouse-down' ||
       kind === 'mouse-up' ||
       kind === 'wheel' ||
@@ -105,7 +108,7 @@ export class Streamer {
     this.moveRefreshTimer = setTimeout(() => {
       this.moveRefreshTimer = null;
       this.enqueueCapture();
-    }, 40);
+    }, 16);
   }
 
   private scheduleBurst(): void {
@@ -114,25 +117,27 @@ export class Streamer {
     for (const delay of BURST_DELAYS_MS) {
       const timer = setTimeout(() => {
         this.burstTimers = this.burstTimers.filter((x) => x !== timer);
-        this.enqueueCapture();
+        this.enqueueCapture(true);
       }, delay);
       this.burstTimers.push(timer);
     }
   }
 
-  private enqueueCapture(): void {
+  private enqueueCapture(urgent = false): void {
     if (this.sessions.size === 0) return;
-    // Drop stale queued frames — always prefer the latest screen state.
-    this.queuedCaptures = Math.min(this.queuedCaptures + 1, 3);
+    if (urgent) this.urgentQueued = true;
+    this.queuedCaptures = Math.min(this.queuedCaptures + 1, urgent ? 6 : 3);
     this.drainQueue();
   }
 
   private drainQueue(): void {
     if (this.busy || this.queuedCaptures <= 0 || this.sessions.size === 0) return;
+    const urgent = this.urgentQueued;
+    this.urgentQueued = false;
     this.queuedCaptures -= 1;
-    void this.tick().finally(() => {
+    void this.tick(urgent).finally(() => {
       if (this.queuedCaptures > 0) {
-        setTimeout(() => this.drainQueue(), 20);
+        setTimeout(() => this.drainQueue(), urgent ? 8 : 16);
       }
     });
   }
@@ -152,11 +157,10 @@ export class Streamer {
     return { width: maxW, height: Math.max(1, Math.round(height * scale)) };
   }
 
-  private async tick(): Promise<void> {
+  private async tick(urgent = false): Promise<void> {
     if (this.busy || this.sessions.size === 0) return;
-    // Skip capture entirely while the socket is backed up — sending would only
-    // grow the queue and make the viewer lag further behind real time.
-    if (this.opts.isBackpressured?.()) return;
+    // Skip capture while backed up unless this frame was triggered by user input.
+    if (!urgent && this.opts.isBackpressured?.()) return;
     this.busy = true;
     const started = Date.now();
     try {

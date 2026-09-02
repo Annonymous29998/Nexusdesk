@@ -5,8 +5,8 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('connection');
 
-/** Drop screen frames once ~2-3 frames are already queued so latency never grows. */
-const MAX_FRAME_BUFFER_BYTES = 256 * 1024;
+/** Drop screen frames once ~4 frames are queued — balance latency vs smoothness. */
+const MAX_FRAME_BUFFER_BYTES = 512 * 1024;
 
 export interface AgentConnectionOptions {
   wsUrl: string;

@@ -7,8 +7,8 @@ import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('socket');
 
-/** Drop frames to a viewer once its send buffer is backed up (~2-3 frames) to keep the stream live. */
-const MAX_VIEWER_FRAME_BUFFER_BYTES = 256 * 1024;
+/** Drop frames to a viewer once its send buffer is backed up (~4 frames). */
+const MAX_VIEWER_FRAME_BUFFER_BYTES = 512 * 1024;
 
 type PeerRole = 'viewer' | 'agent';
 

@@ -10,6 +10,10 @@ import { useOrgId } from '@/hooks/useDevices';
 import { ScreenStreamClient, type StreamStatus } from '@/lib/screen-stream';
 import { formatDuration } from '@/lib/utils';
 import { useActiveViewerStore } from '@/stores/active-viewer';
+import {
+  RemoteScreenFrame,
+  type RemoteScreenFrameHandle,
+} from '@/components/viewer/RemoteScreenFrame';
 
 const STATUS_LABEL: Record<StreamStatus, string> = {
   idle: 'idle',
@@ -32,9 +36,9 @@ export function ViewerPage() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [detail, setDetail] = useState<string | undefined>();
   const [showScreen, setShowScreen] = useState(false);
-  const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const [localPointer, setLocalPointer] = useState<{ x: number; y: number } | null>(null);
   const clientRef = useRef<ScreenStreamClient | null>(null);
+  const frameRef = useRef<RemoteScreenFrameHandle>(null);
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
@@ -203,7 +207,6 @@ export function ViewerPage() {
     if (!sessionId || !deviceId) return;
     gotFirstFrameRef.current = false;
     setShowScreen(false);
-    setCurrentFrame(null);
     const client = new ScreenStreamClient({
       sessionId,
       deviceId,
@@ -213,8 +216,7 @@ export function ViewerPage() {
         setDetail(d);
       },
       onFrame: (jpegBase64) => {
-        const src = `data:image/jpeg;base64,${jpegBase64}`;
-        pendingFrameRef.current = src;
+        pendingFrameRef.current = jpegBase64;
         if (!gotFirstFrameRef.current) {
           gotFirstFrameRef.current = true;
           setShowScreen(true);
@@ -224,7 +226,7 @@ export function ViewerPage() {
             frameRafRef.current = null;
             const latest = pendingFrameRef.current;
             pendingFrameRef.current = null;
-            if (latest) setCurrentFrame(latest);
+            if (latest) frameRef.current?.setFrame(latest);
           });
         }
       },
@@ -367,11 +369,9 @@ export function ViewerPage() {
               clientRef.current?.sendInput({ kind: 'wheel', deltaY: e.deltaY, x, y });
             }}
           >
-            <img
-              src={currentFrame ?? undefined}
-              alt="Remote screen"
+            <RemoteScreenFrame
+              ref={frameRef}
               className="pointer-events-none max-h-[calc(100vh-5.5rem)] max-w-full cursor-none select-none rounded-nd-xl border border-white/10 bg-black/40 shadow-2xl"
-              draggable={false}
             />
             {localPointer ? (
               <div
