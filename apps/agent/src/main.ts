@@ -127,6 +127,7 @@ async function bootstrap(env: AgentEnv): Promise<void> {
     maxWidth: env.AGENT_CAPTURE_MAX_WIDTH,
     stealthInput: env.AGENT_STEALTH_INPUT,
     send: (sessionId, frame) => connection.sendFrame(sessionId, frame),
+    isBackpressured: () => connection.isBackpressured(),
     onCaptureError: (message, sessionIds) => {
       for (const sessionId of sessionIds) {
         connection.sendScreenStatus({

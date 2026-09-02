@@ -20,6 +20,8 @@ export interface StreamerOptions {
   /** Hide guest cursor and skip mouse-move injection while streaming. */
   stealthInput?: boolean;
   send: (sessionId: string, frame: StreamFrame) => void;
+  /** Return true when the connection is backed up, so we skip capturing a frame we'd only drop. */
+  isBackpressured?: () => boolean;
   /** Called when capture fails so the agent can notify viewers. */
   onCaptureError?: (message: string, sessionIds: string[]) => void;
 }
@@ -152,6 +154,9 @@ export class Streamer {
 
   private async tick(): Promise<void> {
     if (this.busy || this.sessions.size === 0) return;
+    // Skip capture entirely while the socket is backed up — sending would only
+    // grow the queue and make the viewer lag further behind real time.
+    if (this.opts.isBackpressured?.()) return;
     this.busy = true;
     const started = Date.now();
     try {

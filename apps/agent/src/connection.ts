@@ -5,6 +5,9 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('connection');
 
+/** Drop screen frames once ~2-3 frames are already queued so latency never grows. */
+const MAX_FRAME_BUFFER_BYTES = 256 * 1024;
+
 export interface AgentConnectionOptions {
   wsUrl: string;
   getToken: () => string;
@@ -50,8 +53,27 @@ export class AgentConnection {
     this.send(WS_EVENTS.agentCommandResult, result as Record<string, unknown>);
   }
 
-  sendFrame(sessionId: string, frame: object): void {
-    this.send(WS_EVENTS.screenFrame, { sessionId, ...(frame as Record<string, unknown>) });
+  sendFrame(sessionId: string, frame: object): boolean {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    // Backpressure: if the send buffer is already backed up, drop this frame so
+    // the viewer always shows the latest screen instead of an ever-growing queue.
+    if (this.socket.bufferedAmount > MAX_FRAME_BUFFER_BYTES) return false;
+    this.socket.send(
+      JSON.stringify({
+        event: WS_EVENTS.screenFrame,
+        data: { sessionId, ...(frame as Record<string, unknown>) },
+      }),
+    );
+    return true;
+  }
+
+  /** Current unflushed bytes in the socket send buffer (0 when idle). */
+  getBufferedAmount(): number {
+    return this.socket?.bufferedAmount ?? 0;
+  }
+
+  isBackpressured(): boolean {
+    return this.getBufferedAmount() > MAX_FRAME_BUFFER_BYTES;
   }
 
   /** Notify viewers (via server fan-out) that capture failed. */

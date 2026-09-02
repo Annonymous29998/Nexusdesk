@@ -39,6 +39,8 @@ export function ViewerPage() {
   const gotFirstFrameRef = useRef(false);
   const screenRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
+  const pendingFrameRef = useRef<string | null>(null);
+  const frameRafRef = useRef<number | null>(null);
   const pendingMoveRef = useRef<{ x: number; y: number; button: 'left' | 'right' | 'middle' } | null>(null);
   const moveRafRef = useRef<number | null>(null);
   const minimizingRef = useRef(false);
@@ -120,7 +122,17 @@ export function ViewerPage() {
       onFrame: (jpegBase64) => {
         const src = `data:image/jpeg;base64,${jpegBase64}`;
         if (gotFirstFrameRef.current && frameImgRef.current) {
-          frameImgRef.current.src = src;
+          // Coalesce to the latest frame: if several arrive before the next paint,
+          // only the newest is rendered so the view never lags behind real time.
+          pendingFrameRef.current = src;
+          if (frameRafRef.current === null) {
+            frameRafRef.current = requestAnimationFrame(() => {
+              frameRafRef.current = null;
+              const latest = pendingFrameRef.current;
+              pendingFrameRef.current = null;
+              if (latest && frameImgRef.current) frameImgRef.current.src = latest;
+            });
+          }
           return;
         }
         gotFirstFrameRef.current = true;
@@ -131,6 +143,11 @@ export function ViewerPage() {
     clientRef.current = client;
     client.connect();
     return () => {
+      if (frameRafRef.current !== null) {
+        cancelAnimationFrame(frameRafRef.current);
+        frameRafRef.current = null;
+      }
+      pendingFrameRef.current = null;
       client.close({ stopStream: !minimizingRef.current });
       clientRef.current = null;
     };

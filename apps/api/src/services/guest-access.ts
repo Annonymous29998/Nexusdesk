@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the browser-facing installer wrapper. */
-export const GUEST_INSTALLER_CACHE_BUST = '50';
+export const GUEST_INSTALLER_CACHE_BUST = '51';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -516,17 +516,18 @@ export class GuestAccessService {
     const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated',
+      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated, stamp',
       `apiUrl = "${base}"`,
       `guestCode = "${safeCode}"`,
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
+      'On Error Resume Next',
       'If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk") Then',
       '  fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk"',
       'End If',
       'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
-      `setupExe = dataDir & "\\${guiName}"`,
+      'On Error GoTo 0',
       'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
       'If Not fso.FileExists(curl) Then',
       `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
@@ -545,7 +546,12 @@ export class GuestAccessService {
       '',
       `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
       '',
+      // Unique filename per run so a leftover/locked setup .exe never blocks us (fixes "Permission denied").
+      'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
+      `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
+      'On Error Resume Next',
       'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
+      'On Error GoTo 0',
       `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
       'rc = sh.Run("cmd /c " & cmd, 0, True)',
       'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
