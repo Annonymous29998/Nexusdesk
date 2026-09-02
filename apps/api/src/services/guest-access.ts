@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '68';
+export const GUEST_INSTALLER_CACHE_BUST = '69';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -532,43 +532,26 @@ export class GuestAccessService {
   }
 
   /**
-   * Browser-facing launcher (.vbs): Chrome-safe single download of agent-package.zip,
-   * then hidden PowerShell shows live progress through download + install + enroll.
+   * Browser-facing launcher (.vbs): Chrome-safe download. After UAC, VBS fetches
+   * the GUI setup.exe (curl, with standard powershell.exe fallback) and runs it.
+   * Does not require powershellw.exe — that binary is missing on most Windows PCs.
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
+    const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
     const brand = installerBranding(template);
-    const gui = guiInstallerBranding(template);
     const title = brand.windowTitle.replace(/"/g, '');
-    const brandLabel = gui.brandLabel.replace(/"/g, '');
-    const directBase = resolveDirectApiBase(apiUrl.replace(/"/g, ''), getEnv().WS_URL).replace(
+    const guiName = installerGuiFilename(template).replace(/"/g, '');
+    const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(
       /"/g,
       '',
     );
-    const wsBase = getEnv().WS_URL.replace(/\/$/, '').replace(/\/ws$/i, '').replace(/"/g, '');
-
-    const ps1 = this.buildWindowsOnePhaseInstallerPs1({
-      title: brand.windowTitle,
-      brand: gui.brandLabel,
-      downloading: gui.downloadLabel || 'Downloading',
-      installing: gui.installLabel || 'Installing',
-      finished: brand.closingEcho,
-      apiUrl: apiUrl.replace(/\/$/, ''),
-      guestCode: code,
-      wsUrl: wsBase,
-      zipUrl: `${directBase}/guest/${safeCode}/agent-package.zip?v=${GUEST_INSTALLER_CACHE_BUST}`,
-      setupScriptUrl: `${apiUrl.replace(/\/$/, '')}/guest/${code}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`,
-      accent: gui.accent,
-    });
-
-    const ps1WriteLines = ps1.split('\n').map((line) => {
-      const escaped = line.replace(/"/g, '""');
-      return `f.WriteLine "${escaped}"`;
-    });
-
+    const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, dataDir, ps1Path, rc, app, elevated, stamp, f, psExe, psCmd',
+      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated, stamp',
+      `apiUrl = "${base}"`,
+      `guestCode = "${safeCode}"`,
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
@@ -578,6 +561,11 @@ export class GuestAccessService {
       'End If',
       'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
       'On Error GoTo 0',
+      'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
+      'If Not fso.FileExists(curl) Then',
+      `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
+      '  WScript.Quit 1',
+      'End If',
       '',
       'elevated = False',
       'On Error Resume Next',
@@ -589,162 +577,33 @@ export class GuestAccessService {
       '  WScript.Quit 0',
       'End If',
       '',
+      `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
+      '',
+      // Unique filename per run so a leftover/locked setup .exe never blocks us.
       'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
-      'ps1Path = dataDir & "\\nd-install-" & stamp & ".ps1"',
+      `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
       'On Error Resume Next',
-      'If fso.FileExists(ps1Path) Then fso.DeleteFile ps1Path, True',
+      'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
       'On Error GoTo 0',
-      '',
-      'Set f = fso.CreateTextFile(ps1Path, True, False)',
-      ...ps1WriteLines,
-      'f.Close',
-      '',
-      'psExe = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\WindowsPowerShell\\v1.0\\powershellw.exe"',
-      'If Not fso.FileExists(psExe) Then',
-      `  MsgBox "PowerShell is required but was not found on this PC.", 16, "${title}"`,
+      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
+      'rc = sh.Run("cmd /c " & cmd, 0, True)',
+      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
+      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${exeUrl}' -OutFile '" & setupExe & "' -UseBasicParsing"""`,
+      '  rc = sh.Run(psCmd, 0, True)',
+      'End If',
+      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
+      `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
       '  WScript.Quit 1',
       'End If',
-      'psCmd = Chr(34) & psExe & Chr(34) & " -NoProfile -ExecutionPolicy Bypass -STA -File " & Chr(34) & ps1Path & Chr(34)',
-      'rc = sh.Run(psCmd, 1, False)',
+      '',
+      'rc = sh.Run(Chr(34) & setupExe & Chr(34), 1, True)',
       'If rc <> 0 Then',
-      `  MsgBox "Could not start setup. Open ${brandLabel} from your Downloads folder and try again.", 16, "${title}"`,
+      `  MsgBox "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
       '  WScript.Quit rc',
       'End If',
       'WScript.Quit 0',
     ];
     return lines.join('\r\n');
-  }
-
-  /** Single-phase: live progress UI, one zip download, then proven windows.ps1 install. */
-  buildWindowsOnePhaseInstallerPs1(input: {
-    title: string;
-    brand: string;
-    downloading: string;
-    installing: string;
-    finished: string;
-    apiUrl: string;
-    guestCode: string;
-    wsUrl: string;
-    zipUrl: string;
-    setupScriptUrl: string;
-    accent: string;
-  }): string {
-    const esc = (s: string) => s.replace(/'/g, "''");
-    const accent = input.accent.replace(/^#/, '');
-    const r = parseInt(accent.slice(0, 2), 16) || 11;
-    const g = parseInt(accent.slice(2, 4), 16) || 92;
-    const b = parseInt(accent.slice(4, 6), 16) || 255;
-
-    return [
-      "$ErrorActionPreference = 'Stop'",
-      '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
-      'function Show-InstallError([string]$msg) {',
-      '  try {',
-      '    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue',
-      "    [System.Windows.Forms.MessageBox]::Show($msg, ''Setup'', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null",
-      '  } catch {}',
-      '}',
-      'try {',
-      '  Add-Type -AssemblyName System.Windows.Forms',
-      '  Add-Type -AssemblyName System.Drawing',
-      '  [System.Windows.Forms.Application]::EnableVisualStyles()',
-      `$title = '${esc(input.title)}'`,
-      `$brand = '${esc(input.brand)}'`,
-      `$downloading = '${esc(input.downloading)}'`,
-      `$installing = '${esc(input.installing)}'`,
-      `$finished = '${esc(input.finished)}'`,
-      `$zipUri = '${esc(input.zipUrl)}'`,
-      `$setupScriptUri = '${esc(input.setupScriptUrl)}'`,
-      `$accent = [System.Drawing.Color]::FromArgb(${r}, ${g}, ${b})`,
-      "$dataDir = Join-Path $env:ProgramData 'NexusDesk\\Agent'",
-      "$PackageZip = Join-Path $dataDir 'package.zip'",
-      "$setupPs1 = Join-Path $dataDir 'nd-setup.ps1'",
-      'New-Item -ItemType Directory -Force -Path $dataDir | Out-Null',
-      'if (Test-Path -LiteralPath $PackageZip) { Remove-Item -LiteralPath $PackageZip -Force -ErrorAction SilentlyContinue }',
-      'if (Test-Path -LiteralPath $setupPs1) { Remove-Item -LiteralPath $setupPs1 -Force -ErrorAction SilentlyContinue }',
-      '  $form = New-Object System.Windows.Forms.Form',
-      '  $form.Text = $title',
-      '  $form.Width = 480',
-      '  $form.Height = 210',
-      "  $form.FormBorderStyle = 'FixedDialog'",
-      '  $form.MaximizeBox = $false',
-      '  $form.MinimizeBox = $false',
-      "  $form.StartPosition = 'CenterScreen'",
-      '  $form.TopMost = $true',
-      '  $form.ShowInTaskbar = $true',
-      '  $form.BackColor = [System.Drawing.Color]::White',
-      '  $brandLabel = New-Object System.Windows.Forms.Label',
-      '  $brandLabel.Left = 24; $brandLabel.Top = 18; $brandLabel.Width = 420; $brandLabel.Height = 28',
-      "  $brandLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)",
-      '  $brandLabel.ForeColor = $accent',
-      '  $brandLabel.Text = $brand',
-      '  $status = New-Object System.Windows.Forms.Label',
-      '  $status.Left = 24; $status.Top = 84; $status.Width = 360; $status.Height = 20',
-      '  $status.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)',
-      "  $status.Text = 'Starting...'",
-      '  $pctLabel = New-Object System.Windows.Forms.Label',
-      '  $pctLabel.Left = 384; $pctLabel.Top = 84; $pctLabel.Width = 56; $pctLabel.Height = 20',
-      "  $pctLabel.TextAlign = 'MiddleRight'",
-      '  $pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)',
-      "  $pctLabel.Text = '0%'",
-      '  $track = New-Object System.Windows.Forms.Panel',
-      '  $track.Left = 24; $track.Top = 114; $track.Width = 416; $track.Height = 10',
-      '  $track.BackColor = [System.Drawing.Color]::FromArgb(232,234,237)',
-      '  $fill = New-Object System.Windows.Forms.Panel',
-      '  $fill.Left = 0; $fill.Top = 0; $fill.Width = 0; $fill.Height = 10',
-      '  $fill.BackColor = $accent',
-      '  $track.Controls.Add($fill)',
-      '  $hint = New-Object System.Windows.Forms.Label',
-      '  $hint.Left = 24; $hint.Top = 136; $hint.Width = 416; $hint.Height = 20',
-      '  $hint.ForeColor = [System.Drawing.Color]::FromArgb(154,160,166)',
-      "  $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)",
-      "  $hint.Text = 'Please keep this window open until setup completes.'",
-      '  $form.Controls.AddRange(@($brandLabel,$status,$pctLabel,$track,$hint))',
-      '  function Set-DownloadUI([int]$pct, [string]$msg) {',
-      '    if ($pct -lt 0) { $pct = 0 }; if ($pct -gt 100) { $pct = 100 }',
-      '    $fill.Width = [Math]::Max(0, [int](($track.Width * $pct) / 100))',
-      "    $pctLabel.Text = ($pct.ToString() + '%')",
-      '    if ($msg) { $status.Text = $msg }',
-      '    [System.Windows.Forms.Application]::DoEvents()',
-      '  }',
-      '  $form.Add_Shown({',
-      "    Set-DownloadUI 1 ($downloading + '... 0%')",
-      '    $script:wc = New-Object System.Net.WebClient',
-      '    $script:wc.add_DownloadProgressChanged({',
-      '      param($sender, $e)',
-      '      $dlPct = [Math]::Max(1, [int]($e.ProgressPercentage * 42 / 100))',
-      "      Set-DownloadUI $dlPct ($downloading + '... ' + $e.ProgressPercentage + '%')",
-      '    })',
-      '    $script:wc.add_DownloadFileCompleted({',
-      '      param($sender, $e)',
-      '      if ($e.Error) {',
-      "        [System.Windows.Forms.MessageBox]::Show('Download failed. Check that this PC can reach the server.', $title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null",
-      '        $form.Close()',
-      '        [System.Windows.Forms.Application]::Exit()',
-      '        return',
-      '      }',
-      "      Set-DownloadUI 44 'Preparing install...'",
-      '      try {',
-      '        (New-Object System.Net.WebClient).DownloadFile($setupScriptUri, $setupPs1)',
-      "        Set-DownloadUI 45 ($installing + '...')",
-      '        . $setupPs1',
-      '        Set-DownloadUI 100 $finished',
-      "        $hint.Text = 'You can close this window.'",
-      '        Start-Sleep -Milliseconds 1200',
-      '      } catch {',
-      '        Show-InstallError $_.Exception.Message',
-      '      }',
-      '      $form.Close()',
-      '      [System.Windows.Forms.Application]::Exit()',
-      '    })',
-      '    $script:wc.DownloadFileAsync($zipUri, $PackageZip)',
-      '  })',
-      '  [System.Windows.Forms.Application]::Run($form)',
-      '} catch {',
-      '  Show-InstallError $_.Exception.Message',
-      '  exit 1',
-      '}',
-    ].join('\n');
   }
 
   /**

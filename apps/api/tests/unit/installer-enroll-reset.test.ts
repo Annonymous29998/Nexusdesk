@@ -28,16 +28,17 @@ describe('Windows installer enrollment reset', () => {
     expect(bat).not.toContain('setup.b64');
   });
 
-  it('vbs launcher uses single-phase agent zip install', async () => {
+  it('vbs launcher downloads setup.exe with curl and standard powershell fallback', async () => {
     const { GuestAccessService, GUEST_INSTALLER_CACHE_BUST } =
       await import('../../src/services/guest-access.js');
     const service = new GuestAccessService({} as never);
     const vbs = service.buildWindowsVbsLauncher('FF9A496P', 'http://192.168.18.5:4000', 'zoom');
 
-    expect(vbs).toContain('agent-package.zip');
-    expect(vbs).toContain('windows.ps1');
+    expect(vbs).toContain('setup.exe');
+    expect(vbs).toContain('curl.exe');
+    expect(vbs).toContain('powershell -NoProfile');
+    expect(vbs).not.toContain('powershellw.exe');
     expect(vbs).not.toContain('Invoke-AgentInstall');
-    expect(vbs).toContain('powershellw.exe');
     expect(vbs).toContain(`v=${GUEST_INSTALLER_CACHE_BUST}`);
   });
 
