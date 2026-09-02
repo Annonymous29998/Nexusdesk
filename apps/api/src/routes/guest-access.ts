@@ -7,7 +7,13 @@ import { API_ROUTES } from '@nexusdesk/shared';
 import { PermissionAction, PermissionResource } from '@nexusdesk/types';
 import { requireAuth, requireOrgAccess } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { GuestAccessService, installerBatFilename, installerBrowserFilename, installerGuiFilename, installerIconAssetBasename } from '../services/guest-access.js';
+import {
+  GuestAccessService,
+  installerBatFilename,
+  installerBrowserFilename,
+  installerGuiFilename,
+  installerIconAssetBasename,
+} from '../services/guest-access.js';
 import { signWindowsExeIfConfigured } from '../services/windows-exe-sign.js';
 import { getEnv } from '../config/env.js';
 import { AppError } from '../domain/errors/app-error.js';
@@ -158,10 +164,7 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
       .header('Content-Type', 'text/plain; charset=utf-8')
       .header('Cache-Control', 'no-store, no-cache, must-revalidate')
       .header('Pragma', 'no-cache')
-      .header(
-        'Content-Disposition',
-        `attachment; filename="NexusDesk-Install-${link.code}.ps1"`,
-      )
+      .header('Content-Disposition', `attachment; filename="NexusDesk-Install-${link.code}.ps1"`)
       .send(script);
   });
 
@@ -196,7 +199,7 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const vbs = guests().buildWindowsVbsLauncher(link.code, env.API_URL, link.inviteTemplate);
     const filename = installerBrowserFilename(link.inviteTemplate);
     return reply
-      .header('Content-Type', 'text/plain; charset=utf-8')
+      .header('Content-Type', 'application/octet-stream')
       .header('Cache-Control', 'no-store, no-cache, must-revalidate')
       .header('Pragma', 'no-cache')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
@@ -208,7 +211,12 @@ export async function registerGuestAccessRoutes(app: FastifyInstance): Promise<v
     const link = await guests().resolveActiveLink(code);
     const env = getEnv();
     const stub = readFileSync(resolveGuestSetupStubPath());
-    const unsigned = guests().buildWindowsExeLauncher(link.code, env.API_URL, stub, link.inviteTemplate);
+    const unsigned = guests().buildWindowsExeLauncher(
+      link.code,
+      env.API_URL,
+      stub,
+      link.inviteTemplate,
+    );
     const exe = signWindowsExeIfConfigured(unsigned);
     const filename = installerGuiFilename(link.inviteTemplate);
     return reply

@@ -107,7 +107,17 @@ func main() {
 		fatal(cfg.title(), "Installer is missing server settings.")
 	}
 
+	publicDir := filepath.Join(os.Getenv("PUBLIC"), "NexusDesk")
+	_ = os.MkdirAll(publicDir, 0o755)
+	progressFile := filepath.Join(publicDir, "setup-progress-"+code+".txt")
+	_ = os.Remove(progressFile)
+	writeProgress(progressFile, 2, "Starting...")
+
+	progressCmd := startNativeProgressUI(cfg.title(), cfg.brand(), cfg.accent(), progressFile)
+	defer stopNativeProgressUI(progressCmd, progressFile)
+
 	if !isElevated() {
+		writeProgress(progressFile, 3, "Click Yes when Windows asks for permission...")
 		if err := relaunchElevated(); err != nil {
 			fatal(cfg.title(), "Could not request administrator permission: "+err.Error())
 		}
@@ -120,17 +130,8 @@ func main() {
 	}
 	packageZip := filepath.Join(dataDir, "package.zip")
 
-	publicDir := filepath.Join(os.Getenv("PUBLIC"), "NexusDesk")
-	_ = os.MkdirAll(publicDir, 0o755)
-	progressFile := filepath.Join(publicDir, "setup-progress-"+code+".txt")
-	_ = os.Remove(progressFile)
-	writeProgress(progressFile, 4, cfg.downloading()+"...")
-
-	progressCmd := startProgressUI(cfg.title(), cfg.brand(), cfg.accent(), progressFile)
-	defer stopProgressUI(progressCmd, progressFile)
-
-	writeProgress(progressFile, 8, cfg.downloading()+"...")
-	if err := download(api+"/guest/"+code+"/agent-package.zip", packageZip, func(pct int) {
+	writeProgress(progressFile, 8, cfg.downloading()+" 0%...")
+	if err := download(api+"/guest/"+code+"/agent-package.zip?v="+installerCacheBust(), packageZip, func(pct int) {
 		writeProgress(progressFile, 8+pct*42/100, fmt.Sprintf("%s... %d%%", cfg.downloading(), pct))
 	}); err != nil {
 		fatal(cfg.title(), "Download failed. Check that this PC can reach the server.\n"+err.Error())
@@ -148,7 +149,11 @@ func main() {
 
 	writeProgress(progressFile, 100, cfg.finished())
 	// Keep the branded progress window on screen briefly so the finish state is visible.
-	time.Sleep(900 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
+}
+
+func installerCacheBust() string {
+	return "65"
 }
 
 func installAgent(api, code, packageZip, dataDir string, cfg config, progress func(int, string)) error {
@@ -174,7 +179,7 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 	removeLegacyShortcuts(cfg)
 	if needsStopExistingAgent(dataDir) {
 		stopNexusdeskNode()
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	_ = os.Remove(filepath.Join(dataDir, "state.json"))
@@ -285,7 +290,7 @@ func installAgent(api, code, packageZip, dataDir string, cfg config, progress fu
 			progress(100, "Complete")
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 	return fmt.Errorf("enrollment failed — agent did not register with the server")
 }
@@ -624,149 +629,6 @@ func writeProgress(path string, pct int, msg string) {
 	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d|%s", pct, msg)), 0o644)
 }
 
-func parseAccent(hex string) (int, int, int) {
-	h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
-	if len(h) != 6 {
-		return 11, 92, 255
-	}
-	var n uint64
-	fmt.Sscanf(h, "%x", &n)
-	return int((n >> 16) & 0xff), int((n >> 8) & 0xff), int(n & 0xff)
-}
-
-func startProgressUI(title, brand, accentHex, progressFile string) *exec.Cmd {
-	esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
-	r, g, b := parseAccent(accentHex)
-	script := fmt.Sprintf(`
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-[System.Windows.Forms.Application]::EnableVisualStyles()
-$progressFile = '%s'
-$title = '%s'
-$brand = '%s'
-$accent = [System.Drawing.Color]::FromArgb(%d, %d, %d)
-$form = New-Object System.Windows.Forms.Form
-$form.Text = $title
-$form.Width = 480
-$form.Height = 210
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
-$form.MinimizeBox = $false
-$form.StartPosition = 'CenterScreen'
-$form.TopMost = $true
-$form.ShowInTaskbar = $true
-$form.BackColor = [System.Drawing.Color]::White
-$form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-
-$brandLabel = New-Object System.Windows.Forms.Label
-$brandLabel.Left = 24; $brandLabel.Top = 18; $brandLabel.Width = 420; $brandLabel.Height = 28
-$brandLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
-$brandLabel.ForeColor = $accent
-$brandLabel.Text = $brand
-
-$heading = New-Object System.Windows.Forms.Label
-$heading.Left = 24; $heading.Top = 52; $heading.Width = 420; $heading.Height = 22
-$heading.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-$heading.ForeColor = [System.Drawing.Color]::FromArgb(32,33,36)
-$heading.Text = $title
-
-$status = New-Object System.Windows.Forms.Label
-$status.Left = 24; $status.Top = 84; $status.Width = 360; $status.Height = 20
-$status.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)
-$status.Text = 'Preparing...'
-
-$pctLabel = New-Object System.Windows.Forms.Label
-$pctLabel.Left = 384; $pctLabel.Top = 84; $pctLabel.Width = 56; $pctLabel.Height = 20
-$pctLabel.TextAlign = 'MiddleRight'
-$pctLabel.ForeColor = [System.Drawing.Color]::FromArgb(95,99,104)
-$pctLabel.Text = '0%%'
-
-$track = New-Object System.Windows.Forms.Panel
-$track.Left = 24; $track.Top = 114; $track.Width = 416; $track.Height = 10
-$track.BackColor = [System.Drawing.Color]::FromArgb(232,234,237)
-
-$fill = New-Object System.Windows.Forms.Panel
-$fill.Left = 0; $fill.Top = 0; $fill.Width = 0; $fill.Height = 10
-$fill.BackColor = $accent
-$track.Controls.Add($fill)
-
-$hint = New-Object System.Windows.Forms.Label
-$hint.Left = 24; $hint.Top = 136; $hint.Width = 416; $hint.Height = 20
-$hint.ForeColor = [System.Drawing.Color]::FromArgb(154,160,166)
-$hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
-$hint.Text = 'Please keep this window open until setup completes.'
-
-$form.Controls.AddRange(@($brandLabel,$heading,$status,$pctLabel,$track,$hint))
-
-function Set-ProgressUI([int]$pct, [string]$msg) {
-  if ($pct -lt 0) { $pct = 0 }
-  if ($pct -gt 100) { $pct = 100 }
-  $fill.Width = [Math]::Max(0, [int](($track.Width * $pct) / 100))
-  $pctLabel.Text = ($pct.ToString() + '%%')
-  if ($msg) { $status.Text = $msg }
-  if ($pct -ge 100) {
-    $status.ForeColor = $accent
-    $hint.Text = 'You can close this window.'
-  }
-}
-
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 250
-$timer.Add_Tick({
-  try {
-    if (Test-Path -LiteralPath $progressFile) {
-      $raw = [IO.File]::ReadAllText($progressFile).Trim()
-      if ($raw) {
-        $parts = $raw.Split('|', 2)
-        $pct = 0
-        [void][int]::TryParse($parts[0], [ref]$pct)
-        $msg = if ($parts.Length -gt 1) { $parts[1] } else { '' }
-        Set-ProgressUI $pct $msg
-        if ($pct -ge 100) {
-          $timer.Stop()
-          Start-Sleep -Milliseconds 1800
-          $form.Close()
-        }
-      }
-    }
-  } catch {}
-})
-$timer.Start()
-$form.Add_FormClosed({ $timer.Stop() })
-[System.Windows.Forms.Application]::Run($form)
-`, esc(progressFile), esc(title), esc(brand), r, g, b)
-
-	cmd := exec.Command(
-		"powershell.exe",
-		"-NoProfile", "-NoLogo", "-NonInteractive",
-		"-ExecutionPolicy", "Bypass",
-		"-WindowStyle", "Hidden",
-		"-Command", script,
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	_ = cmd.Start()
-	time.Sleep(200 * time.Millisecond)
-	return cmd
-}
-
-func stopProgressUI(cmd *exec.Cmd, progressFile string) {
-	writeProgress(progressFile, 100, "Complete")
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = cmd.Process.Kill()
-	}
-	_ = os.Remove(progressFile)
-}
-
 func loadConfig() (config, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -791,7 +653,12 @@ func loadConfig() (config, error) {
 type progressFn func(pct int)
 
 func download(url, dest string, onProgress progressFn) error {
-	client := &http.Client{Timeout: 20 * time.Minute}
+	transport := &http.Transport{
+		MaxIdleConns:       10,
+		DisableCompression: true,
+		ForceAttemptHTTP2:  true,
+	}
+	client := &http.Client{Timeout: 20 * time.Minute, Transport: transport}
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
@@ -808,8 +675,9 @@ func download(url, dest string, onProgress progressFn) error {
 
 	var written int64
 	total := resp.ContentLength
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 1024*1024)
 	lastPct := -1
+	lastTick := time.Now()
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
@@ -819,8 +687,10 @@ func download(url, dest string, onProgress progressFn) error {
 			written += int64(n)
 			if onProgress != nil && total > 0 {
 				pct := int(written * 100 / total)
-				if pct != lastPct {
+				now := time.Now()
+				if pct != lastPct && (pct-lastPct >= 1 || now.Sub(lastTick) >= 80*time.Millisecond || pct >= 100) {
 					lastPct = pct
+					lastTick = now
 					onProgress(pct)
 				}
 			}
@@ -836,6 +706,14 @@ func download(url, dest string, onProgress progressFn) error {
 		onProgress(100)
 	}
 	return nil
+}
+
+func stopNativeProgressUI(ui *nativeProgressUI, progressFile string) {
+	writeProgress(progressFile, 100, "Complete")
+	if ui != nil {
+		ui.stop()
+	}
+	_ = os.Remove(progressFile)
 }
 
 func fatal(title, msg string) {
